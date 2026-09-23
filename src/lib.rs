@@ -1,6 +1,7 @@
 pub mod settings;
 pub mod address;
 pub mod node;
+pub mod command;
 pub mod message;
 pub mod criteria;
 pub mod busy;

@@ -96,7 +96,7 @@ fn write_get_games(criteria: &Criteria) -> Vec<u8> {
     return bytes;
 }
 
-fn put_criteria(bytes: &mut Vec<u8>, criteria: &Criteria) {
+pub fn put_criteria(bytes: &mut Vec<u8>, criteria: &Criteria) {
     if criteria.name.is_some() {
         bytes.push(1);
         put_text(bytes, criteria.name.as_ref().unwrap());
@@ -139,7 +139,7 @@ fn put_neighbor(bytes: &mut Vec<u8>, neighbor: &Neighbor) {
     bytes.push(neighbor.depth);
 }
 
-fn put_game(bytes: &mut Vec<u8>, game: &Game) {
+pub fn put_game(bytes: &mut Vec<u8>, game: &Game) {
     put_text(bytes, &game.name);
 
     put_u32(bytes, game.version[0]);
@@ -157,19 +157,19 @@ fn put_game(bytes: &mut Vec<u8>, game: &Game) {
     bytes.push(game.downloadable as u8);
 }
 
-fn put_u16(bytes: &mut Vec<u8>, value: u16) {
+pub fn put_u16(bytes: &mut Vec<u8>, value: u16) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
-fn put_u32(bytes: &mut Vec<u8>, value: u32) {
+pub fn put_u32(bytes: &mut Vec<u8>, value: u32) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
-fn put_u64(bytes: &mut Vec<u8>, value: u64) {
+pub fn put_u64(bytes: &mut Vec<u8>, value: u64) {
     bytes.extend_from_slice(&value.to_le_bytes());
 }
 
-fn put_text(bytes: &mut Vec<u8>, text: &str) {
+pub fn put_text(bytes: &mut Vec<u8>, text: &str) {
     put_u16(bytes, text.len() as u16);
     bytes.extend_from_slice(text.as_bytes());
 }
@@ -256,7 +256,7 @@ fn read_get_games(bytes: &[u8]) -> Option<Message> {
     return Some(Message::GetGames { criteria: criteria.unwrap() });
 }
 
-fn take_criteria(bytes: &[u8], at: &mut usize) -> Option<Criteria> {
+pub fn take_criteria(bytes: &[u8], at: &mut usize) -> Option<Criteria> {
     let name = take_optional_text(bytes, at);
     let tags = take_tags(bytes, at);
     let autor_key = take_optional_key(bytes, at);
@@ -347,7 +347,7 @@ fn take_neighbor(bytes: &[u8], at: &mut usize) -> Option<Neighbor> {
     return Some(Neighbor::new(address.unwrap(), id.unwrap(), depth.unwrap()));
 }
 
-fn take_game(bytes: &[u8], at: &mut usize) -> Option<Game> {
+pub fn take_game(bytes: &[u8], at: &mut usize) -> Option<Game> {
     let name = take_text(bytes, at);
     let version = take_version(bytes, at);
     let autor_key = take_key(bytes, at);
@@ -421,7 +421,7 @@ fn take_tags(bytes: &[u8], at: &mut usize) -> Option<Vec<u64>> {
     return Some(tags);
 }
 
-fn take_u8(bytes: &[u8], at: &mut usize) -> Option<u8> {
+pub fn take_u8(bytes: &[u8], at: &mut usize) -> Option<u8> {
     if *at + 1 > bytes.len() {
         return None;
     }
@@ -432,7 +432,7 @@ fn take_u8(bytes: &[u8], at: &mut usize) -> Option<u8> {
     return Some(value);
 }
 
-fn take_u16(bytes: &[u8], at: &mut usize) -> Option<u16> {
+pub fn take_u16(bytes: &[u8], at: &mut usize) -> Option<u16> {
     if *at + 2 > bytes.len() {
         return None;
     }
@@ -444,7 +444,7 @@ fn take_u16(bytes: &[u8], at: &mut usize) -> Option<u16> {
     return Some(u16::from_le_bytes(value));
 }
 
-fn take_u32(bytes: &[u8], at: &mut usize) -> Option<u32> {
+pub fn take_u32(bytes: &[u8], at: &mut usize) -> Option<u32> {
     if *at + 4 > bytes.len() {
         return None;
     }
@@ -456,7 +456,7 @@ fn take_u32(bytes: &[u8], at: &mut usize) -> Option<u32> {
     return Some(u32::from_le_bytes(value));
 }
 
-fn take_u64(bytes: &[u8], at: &mut usize) -> Option<u64> {
+pub fn take_u64(bytes: &[u8], at: &mut usize) -> Option<u64> {
     if *at + 8 > bytes.len() {
         return None;
     }
@@ -480,7 +480,7 @@ fn take_key(bytes: &[u8], at: &mut usize) -> Option<[u8; 32]> {
     return Some(key);
 }
 
-fn take_text(bytes: &[u8], at: &mut usize) -> Option<String> {
+pub fn take_text(bytes: &[u8], at: &mut usize) -> Option<String> {
     let length = take_u16(bytes, at);
     if length.is_none() {
         return None;

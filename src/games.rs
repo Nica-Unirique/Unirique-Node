@@ -162,6 +162,39 @@ impl Games {
 
         return false;
     }
+
+    pub fn get_installed(&self) -> Vec<Game> {
+        let mut installed = Vec::new();
+
+        for game in self.values.iter() {
+            if game.downloaded {
+                installed.push(game.clone());
+            }
+        }
+
+        return installed;
+    }
+
+    pub fn set_share(&mut self, infohash: &str, share: Option<u32>) -> bool {
+        if share == Some(0) {
+            return false;
+        }
+
+        let mut found = false;
+
+        for game in self.values.iter_mut() {
+            if game.infohash == infohash && game.downloaded {
+                game.share = share;
+                found = true;
+            }
+        }
+
+        if found {
+            self.save_shares();
+        }
+
+        return found;
+    }
 }
 
 

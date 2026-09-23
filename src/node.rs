@@ -24,6 +24,7 @@ use crate::neighbors::Neighbors;
 use crate::servers::Servers;
 use crate::settings::Settings;
 use crate::busy::Busy;
+use crate::command::Command;
 
 const MAIN_NODE: &str = "127.0.0.1:8735";
 const ENTER_TRIES: u32 = 10;
@@ -36,6 +37,7 @@ const DEPTH_MAX: u8 = 63;
 const WEIGHT_HIGH: u64 = 10 * 1024 * 1024;
 const WEIGHT_LOW: u64 = 5 * 1024 * 1024;
 const NEIGHBORS_ASKED: usize = 128;
+const LOCAL_PORT_SHIFT: u16 = 20000;
 
 pub struct Node {
     ismain: bool,
@@ -114,9 +116,80 @@ impl Node {
             return;
         }
 
+        let local = TcpListener::bind(("127.0.0.1", self.address.port + LOCAL_PORT_SHIFT));
+        if local.is_err() {
+            eprintln!("Failed to open the local door on port {}", self.address.port + LOCAL_PORT_SHIFT);
+            return;
+        }
+
         self.seed_games();
         self.listen(listener.unwrap());
+        self.listen_local(local.unwrap());
         self.upkeep();
+    }
+
+    fn listen_local(self: &Arc<Self>, listener: TcpListener) {
+        let node = self.clone();
+
+        thread::spawn(move || {
+            for coming in listener.incoming() {
+                if coming.is_err() {
+                    continue;
+                }
+
+                let serving = node.clone();
+                let stream = coming.unwrap();
+
+                thread::spawn(move || serving.serve_local(stream));
+            }
+        });
+    }
+
+    fn serve_local(&self, mut stream: TcpStream) {
+        let bytes = read_frame(&mut stream);
+        if bytes.is_none() {
+            return;
+        }
+
+        let command = Command::from_bytes(&bytes.unwrap());
+        if command.is_none() {
+            return;
+        }
+
+        let answer = self.obey(command.unwrap());
+        if answer.is_none() {
+            return;
+        }
+
+        write_frame(&mut stream, &answer.unwrap().to_bytes());
+    }
+
+    fn obey(&self, command: Command) -> Option<Command> {
+        match command {
+            Command::Search { criteria } => return Some(Command::Games { games: self.search(&criteria) }),
+            Command::Download { game } => return Some(Command::Done { ok: self.download(&game) }),
+            Command::Installed => return Some(Command::Games { games: self.games.lock().unwrap().get_installed() }),
+            Command::SetShare { infohash, share } => {
+                return Some(Command::Done { ok: self.games.lock().unwrap().set_share(&infohash, share) })
+            }
+            Command::Games { .. } => return None,
+            Command::Done { .. } => return None,
+        }
+    }
+
+    fn search(&self, criteria: &Criteria) -> Vec<Game> {
+        let contacts = self.neighbors.lock().unwrap().contacts();
+
+        for address in contacts {
+            let answer = self.ask(address, Message::GetGames { criteria: criteria.clone() });
+
+            match answer {
+                Some(Message::SendGames { games }) => self.receive_games(&games),
+                _ => {}
+            }
+        }
+
+        return self.games.lock().unwrap().get_by_criteria(criteria);
     }
 
     fn listen(self: &Arc<Self>, listener: TcpListener) {
@@ -460,6 +533,19 @@ impl Node {
 }
 
 fn read_message(stream: &mut TcpStream) -> Option<Message> {
+    let bytes = read_frame(stream);
+    if bytes.is_none() {
+        return None;
+    }
+
+    return Message::from_bytes(&bytes.unwrap());
+}
+
+fn write_message(stream: &mut TcpStream, message: &Message) -> bool {
+    return write_frame(stream, &message.to_bytes());
+}
+
+fn read_frame(stream: &mut TcpStream) -> Option<Vec<u8>> {
     let mut head = [0u8; 4];
     if stream.read_exact(&mut head).is_err() {
         return None;
@@ -475,11 +561,10 @@ fn read_message(stream: &mut TcpStream) -> Option<Message> {
         return None;
     }
 
-    return Message::from_bytes(&bytes);
+    return Some(bytes);
 }
 
-fn write_message(stream: &mut TcpStream, message: &Message) -> bool {
-    let bytes = message.to_bytes();
+fn write_frame(stream: &mut TcpStream, bytes: &[u8]) -> bool {
     if bytes.len() > MESSAGE_MAX as usize {
         return false;
     }
@@ -488,7 +573,7 @@ fn write_message(stream: &mut TcpStream, message: &Message) -> bool {
         return false;
     }
 
-    if stream.write_all(&bytes).is_err() {
+    if stream.write_all(bytes).is_err() {
         return false;
     }
 

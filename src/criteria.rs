@@ -1,5 +1,6 @@
 use crate::game::Game;
 
+#[derive(Clone)]
 pub struct Criteria {
     pub name: Option<String>,
     pub tags: Vec<u64>,
