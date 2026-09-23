@@ -4,6 +4,7 @@ use std::fs;
 use serde_json;
 use librqbit::spawn_utils::BlockingSpawner;
 use librqbit::{create_torrent, CreateTorrentOptions};
+use crate::signature::{game_bytes, signature_from_hex, signature_to_hex, verify};
 
 #[derive(Clone)]
 pub struct Game {
@@ -26,6 +27,7 @@ pub struct Game {
 
     pub sent: u64,
     pub session_sent: u64,
+    pub signature: [u8; 64],
 }
 
 impl Game {
@@ -45,6 +47,7 @@ impl Game {
             folder: folder.clone(),
             sent: 0,
             session_sent: 0,
+            signature: [0; 64],
         };
 
         let manifest = folder.join("manifest.json");
@@ -101,7 +104,17 @@ impl Game {
         if description.is_none() {
             return None;
         }
+
         game.description = description.unwrap();
+
+        let signature = json["signature"].as_str();
+        if signature.is_some() {
+            let read = signature_from_hex(signature.unwrap());
+            if read.is_some() {
+                game.signature = read.unwrap();
+            }
+        }
+
         game.compute_ram_weight();
 
         let infohash = ensure_torrent(folder, &json);
@@ -154,6 +167,7 @@ impl Game {
             "tags": self.tags,
             "description": self.description,
             "infohash": self.infohash,
+            "signature": signature_to_hex(&self.signature),
         });
 
         let text = serde_json::to_string_pretty(&manifest);
@@ -162,6 +176,10 @@ impl Game {
         }
 
         return fs::write(folder.join("manifest.json"), text.unwrap()).is_ok();
+    }
+
+    pub fn is_signed(&self) -> bool {
+        return verify(&self.autor_key, &game_bytes(self), &self.signature);
     }
 
     pub fn is_exhausted(&self) -> bool {

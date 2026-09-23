@@ -4,6 +4,7 @@ use crate::address::Address;
 use crate::game::Game;
 use crate::neighbor::Neighbor;
 use crate::criteria::Criteria;
+use crate::server::Server;
 
 const PING: u8 = 1;
 const PONG: u8 = 2;
@@ -13,6 +14,7 @@ const GET_GAMES: u8 = 5;
 const SEND_GAMES: u8 = 6;
 const GET_HOLDER: u8 = 7;
 const HOLDING: u8 = 8;
+const ANNOUNCE_SERVER: u8 = 9;
 
 pub enum Message {
     Ping { port: u16, id: u64, depth: u8 },
@@ -23,6 +25,7 @@ pub enum Message {
     SendGames { games: Vec<Game> },
     GetHolder { infohash: String },
     Holding { torrent_port: u16 },
+    AnnounceServer { server: Server },
 }
 
 impl Message {
@@ -36,6 +39,7 @@ impl Message {
             Message::SendGames { games } => return write_send_games(games),
             Message::GetHolder { infohash } => return write_get_holder(infohash),
             Message::Holding { torrent_port } => return write_holding(*torrent_port),
+            Message::AnnounceServer { server } => return write_announce_server(server),
         }
     }
 
@@ -55,6 +59,7 @@ impl Message {
             SEND_GAMES => return read_send_games(rest),
             GET_HOLDER => return read_get_holder(rest),
             HOLDING => return read_holding(rest),
+            ANNOUNCE_SERVER => return read_announce_server(rest),
             _ => return None,
         }
     }
@@ -114,7 +119,7 @@ pub fn put_criteria(bytes: &mut Vec<u8>, criteria: &Criteria) {
     }
 }
 
-fn put_tags(bytes: &mut Vec<u8>, tags: &Vec<u64>) {
+pub fn put_tags(bytes: &mut Vec<u8>, tags: &Vec<u64>) {
     put_u16(bytes, tags.len() as u16);
 
     for tag in tags.iter() {
@@ -155,6 +160,7 @@ pub fn put_game(bytes: &mut Vec<u8>, game: &Game) {
     put_text(bytes, &game.infohash);
 
     bytes.push(game.downloadable as u8);
+    bytes.extend_from_slice(&game.signature);
 }
 
 pub fn put_u16(bytes: &mut Vec<u8>, value: u16) {
@@ -354,16 +360,15 @@ pub fn take_game(bytes: &[u8], at: &mut usize) -> Option<Game> {
     let tags = take_tags(bytes, at);
     let description = take_text(bytes, at);
     let disk_weight = take_u64(bytes, at);
-    let downloadable = take_u8(bytes, at);
     let infohash = take_text(bytes, at);
-    let sent = take_u64(bytes, at);
-    let session_sent = take_u64(bytes, at);
+    let downloadable = take_u8(bytes, at);
+    let signature = take_signature(bytes, at);
 
     if name.is_none() || version.is_none() || autor_key.is_none() || tags.is_none() {
         return None;
     }
 
-    if description.is_none() || disk_weight.is_none() || downloadable.is_none() || infohash.is_none() || sent.is_none() || session_sent.is_none() {
+    if description.is_none() || disk_weight.is_none() || downloadable.is_none() || infohash.is_none() || signature.is_none() {
         return None;
     }
 
@@ -380,8 +385,9 @@ pub fn take_game(bytes: &[u8], at: &mut usize) -> Option<Game> {
         infohash: infohash.unwrap(),
         share: None,
         folder: PathBuf::new(),
-        sent: sent.unwrap(),
-        session_sent: session_sent.unwrap(),
+        sent: 0,
+        session_sent: 0,
+        signature: signature.unwrap(),
     };
 
     game.compute_ram_weight();
@@ -535,4 +541,82 @@ fn read_holding(bytes: &[u8]) -> Option<Message> {
     }
 
     return Some(Message::Holding { torrent_port: torrent_port.unwrap() });
+}
+
+fn write_announce_server(server: &Server) -> Vec<u8> {
+    let mut bytes = vec![ANNOUNCE_SERVER];
+    put_server(&mut bytes, server);
+
+    return bytes;
+}
+
+fn read_announce_server(bytes: &[u8]) -> Option<Message> {
+    let mut at = 0;
+
+    let server = take_server(bytes, &mut at);
+    if server.is_none() {
+        return None;
+    }
+
+    return Some(Message::AnnounceServer { server: server.unwrap() });
+}
+
+pub fn put_server(bytes: &mut Vec<u8>, server: &Server) {
+    put_text(bytes, &server.name);
+    put_text(bytes, &server.address.to_text());
+    bytes.extend_from_slice(&server.host_key);
+    put_text(bytes, &server.game_name);
+    put_u32(bytes, server.game_version[0]);
+    put_u32(bytes, server.game_version[1]);
+    put_u32(bytes, server.game_version[2]);
+    bytes.extend_from_slice(&server.game_autor_key);
+    put_u64(bytes, server.signed_at);
+    bytes.extend_from_slice(&server.signature);
+}
+
+pub fn take_server(bytes: &[u8], at: &mut usize) -> Option<Server> {
+    let name = take_text(bytes, at);
+    let address = take_text(bytes, at);
+    let host_key = take_key(bytes, at);
+    let game_name = take_text(bytes, at);
+    let game_version = take_version(bytes, at);
+    let game_autor_key = take_key(bytes, at);
+    let signed_at = take_u64(bytes, at);
+    let signature = take_signature(bytes, at);
+
+    if name.is_none() || address.is_none() || host_key.is_none() || game_name.is_none() {
+        return None;
+    }
+
+    if game_version.is_none() || game_autor_key.is_none() || signed_at.is_none() || signature.is_none() {
+        return None;
+    }
+
+    let address = Address::from_text(&address.unwrap());
+    if address.is_none() {
+        return None;
+    }
+
+    return Some(Server::new(
+        name.unwrap(),
+        address.unwrap(),
+        host_key.unwrap(),
+        game_name.unwrap(),
+        game_version.unwrap(),
+        game_autor_key.unwrap(),
+        signed_at.unwrap(),
+        signature.unwrap(),
+    ));
+}
+
+pub fn take_signature(bytes: &[u8], at: &mut usize) -> Option<[u8; 64]> {
+    if *at + 64 > bytes.len() {
+        return None;
+    }
+
+    let mut signature = [0u8; 64];
+    signature.copy_from_slice(&bytes[*at..*at + 64]);
+    *at += 64;
+
+    return Some(signature);
 }

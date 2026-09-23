@@ -1,5 +1,7 @@
 use crate::criteria::Criteria;
 use crate::game::Game;
+use crate::message::{put_server, take_server, take_signature};
+use crate::server::Server;
 use crate::message::{put_criteria, put_game, put_text, put_u16, take_criteria, take_game, take_text, take_u16, take_u8};
 
 const SEARCH: u8 = 1;
@@ -8,6 +10,14 @@ const INSTALLED: u8 = 3;
 const SET_SHARE: u8 = 4;
 const GAMES: u8 = 5;
 const DONE: u8 = 6;
+const CHALLENGE: u8 = 7;
+const TO_SIGN: u8 = 8;
+const SIGNED: u8 = 9;
+
+pub enum Subject {
+    Game { infohash: String },
+    Server { server: Server },
+}
 
 pub enum Command {
     Search { criteria: Criteria },
@@ -16,6 +26,9 @@ pub enum Command {
     SetShare { infohash: String, share: Option<u32> },
     Games { games: Vec<Game> },
     Done { ok: bool },
+    Challenge { what: Subject },
+    ToSign { bytes: Vec<u8> },
+    Signed { what: Subject, signature: [u8; 64] },
 }
 
 impl Command {
@@ -27,6 +40,9 @@ impl Command {
             Command::SetShare { infohash, share } => return write_set_share(infohash, *share),
             Command::Games { games } => return write_games(games),
             Command::Done { ok } => return vec![DONE, *ok as u8],
+            Command::Challenge { what } => return write_challenge(what),
+            Command::ToSign { bytes } => return write_to_sign(bytes),
+            Command::Signed { what, signature } => return write_signed(what, signature),
         }
     }
 
@@ -44,6 +60,9 @@ impl Command {
             SET_SHARE => return read_set_share(rest),
             GAMES => return read_games(rest),
             DONE => return read_done(rest),
+            CHALLENGE => return read_challenge(rest),
+            TO_SIGN => return read_to_sign(rest),
+            SIGNED => return read_signed(rest),
             _ => return None,
         }
     }
@@ -169,4 +188,106 @@ fn read_done(bytes: &[u8]) -> Option<Command> {
     }
 
     return Some(Command::Done { ok: ok.unwrap() == 1 });
+}
+fn write_challenge(what: &Subject) -> Vec<u8> {
+    let mut bytes = vec![CHALLENGE];
+    put_subject(&mut bytes, what);
+
+    return bytes;
+}
+
+fn write_to_sign(to_sign: &Vec<u8>) -> Vec<u8> {
+    let mut bytes = vec![TO_SIGN];
+    bytes.extend_from_slice(&(to_sign.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(to_sign);
+
+    return bytes;
+}
+
+fn write_signed(what: &Subject, signature: &[u8; 64]) -> Vec<u8> {
+    let mut bytes = vec![SIGNED];
+    put_subject(&mut bytes, what);
+    bytes.extend_from_slice(signature);
+
+    return bytes;
+}
+
+fn put_subject(bytes: &mut Vec<u8>, what: &Subject) {
+    match what {
+        Subject::Game { infohash } => {
+            bytes.push(1);
+            put_text(bytes, infohash);
+        }
+        Subject::Server { server } => {
+            bytes.push(2);
+            put_server(bytes, server);
+        }
+    }
+}
+
+fn read_challenge(bytes: &[u8]) -> Option<Command> {
+    let mut at = 0;
+
+    let what = take_subject(bytes, &mut at);
+    if what.is_none() {
+        return None;
+    }
+
+    return Some(Command::Challenge { what: what.unwrap() });
+}
+
+fn read_to_sign(bytes: &[u8]) -> Option<Command> {
+    if bytes.len() < 4 {
+        return None;
+    }
+
+    let mut length = [0u8; 4];
+    length.copy_from_slice(&bytes[0..4]);
+    let length = u32::from_le_bytes(length) as usize;
+
+    if 4 + length > bytes.len() {
+        return None;
+    }
+
+    return Some(Command::ToSign { bytes: bytes[4..4 + length].to_vec() });
+}
+
+fn read_signed(bytes: &[u8]) -> Option<Command> {
+    let mut at = 0;
+
+    let what = take_subject(bytes, &mut at);
+    let signature = take_signature(bytes, &mut at);
+
+    if what.is_none() || signature.is_none() {
+        return None;
+    }
+
+    return Some(Command::Signed { what: what.unwrap(), signature: signature.unwrap() });
+}
+
+fn take_subject(bytes: &[u8], at: &mut usize) -> Option<Subject> {
+    let kind = take_u8(bytes, at);
+    if kind.is_none() {
+        return None;
+    }
+
+    if kind.unwrap() == 1 {
+        let infohash = take_text(bytes, at);
+        if infohash.is_none() {
+            return None;
+        }
+
+        return Some(Subject::Game { infohash: infohash.unwrap() });
+    }
+
+    if kind.unwrap() == 2 {
+        let server = take_server(bytes, at);
+        if server.is_none() {
+            return None;
+        }
+
+        return Some(Subject::Server { server: server.unwrap() });
+    }
+
+    return None;
 }

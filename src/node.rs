@@ -24,7 +24,9 @@ use crate::neighbors::Neighbors;
 use crate::servers::Servers;
 use crate::settings::Settings;
 use crate::busy::Busy;
-use crate::command::Command;
+use crate::command::{Command, Subject};
+use crate::server::Server;
+use crate::signature::{game_bytes, server_bytes};
 
 const MAIN_NODE: &str = "127.0.0.1:8735";
 const ENTER_TRIES: u32 = 10;
@@ -86,7 +88,7 @@ impl Node {
         let games = self.games.lock().unwrap().get_all();
 
         for game in games.iter() {
-            if game.downloaded && !game.is_exhausted() {
+            if game.downloaded && !game.is_exhausted() && game.is_signed() {
                 self.seed(game);
             }
         }
@@ -172,8 +174,73 @@ impl Node {
             Command::SetShare { infohash, share } => {
                 return Some(Command::Done { ok: self.games.lock().unwrap().set_share(&infohash, share) })
             }
+            Command::Challenge { what } => return Some(self.challenge(what)),
+            Command::Signed { what, signature } => return Some(Command::Done { ok: self.signed(what, signature) }),
             Command::Games { .. } => return None,
             Command::Done { .. } => return None,
+            Command::ToSign { .. } => return None,
+        }
+    }
+
+    fn challenge(&self, what: Subject) -> Command {
+        match what {
+            Subject::Game { infohash } => {
+                let game = self.games.lock().unwrap().find(&infohash);
+                if game.is_none() {
+                    return Command::Done { ok: false };
+                }
+
+                return Command::ToSign { bytes: game_bytes(&game.unwrap()) };
+            }
+            Subject::Server { server } => return Command::ToSign { bytes: server_bytes(&server) },
+        }
+    }
+
+    fn signed(&self, what: Subject, signature: [u8; 64]) -> bool {
+        match what {
+            Subject::Game { infohash } => return self.sign_game(&infohash, signature),
+            Subject::Server { mut server } => {
+                server.signature = signature;
+                return self.declare_server(server);
+            }
+        }
+    }
+
+    fn sign_game(&self, infohash: &str, signature: [u8; 64]) -> bool {
+        let game = self.games.lock().unwrap().set_signature(infohash, signature);
+        if game.is_none() {
+            return false;
+        }
+
+        let game = game.unwrap();
+        self.seed(&game);
+
+        let contacts = self.neighbors.lock().unwrap().contacts();
+        for address in contacts {
+            self.ask(address, Message::SendGames { games: vec![game.clone()] });
+        }
+
+        return true;
+    }
+
+    fn declare_server(&self, server: Server) -> bool {
+        if !server.is_valid() {
+            return false;
+        }
+
+        self.servers.lock().unwrap().add(server.clone());
+
+        let contacts = self.neighbors.lock().unwrap().contacts();
+        for address in contacts {
+            self.ask(address, Message::AnnounceServer { server: server.clone() });
+        }
+
+        return true;
+    }
+
+    fn receive_server(&self, server: &Server) {
+        if server.is_valid() {
+            self.servers.lock().unwrap().add(server.clone());
         }
     }
 
@@ -256,6 +323,10 @@ impl Node {
             Message::SendNeighbors { .. } => return None,
             Message::GetHolder { infohash } => return self.answer_get_holder(infohash),
             Message::Holding { .. } => return None,
+            Message::AnnounceServer { server } => {
+                self.receive_server(server);
+                return None;
+            }
         }
     }
 
@@ -351,7 +422,7 @@ impl Node {
     }
 
     fn publish_games(&self) {
-        let games = self.games.lock().unwrap().get_all();
+        let games = self.games.lock().unwrap().get_signed();
         let contacts = self.neighbors.lock().unwrap().contacts();
 
         for address in contacts {

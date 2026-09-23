@@ -74,6 +74,10 @@ impl Games {
     }
 
     pub fn add_received(&mut self, game_new: Game) {
+        if !game_new.is_signed() {
+            return;
+        }
+
         for game in self.values.iter() {
             if game.name == game_new.name && game.version == game_new.version && game.autor_key == game_new.autor_key {
                 return;
@@ -92,7 +96,7 @@ impl Games {
         let mut game_found = Vec::new();
 
         for game in self.values.iter() {
-            if criteria.matches(game) {
+            if criteria.matches(game) && game.is_signed() {
                 game_found.push(game.clone());
             }
         }
@@ -155,12 +159,58 @@ impl Games {
 
     pub fn is_holding(&self, infohash: &str) -> bool {
         for game in self.values.iter() {
-            if game.infohash == infohash && game.downloaded && !game.is_exhausted() {
+            if game.infohash == infohash && game.downloaded && !game.is_exhausted() && game.is_signed() {
                 return true;
             }
         }
 
         return false;
+    }
+
+    pub fn get_signed(&self) -> Vec<Game> {
+        let mut signed = Vec::new();
+
+        for game in self.values.iter() {
+            if game.is_signed() {
+                signed.push(game.clone());
+            }
+        }
+
+        return signed;
+    }
+
+    pub fn find(&self, infohash: &str) -> Option<Game> {
+        for game in self.values.iter() {
+            if game.infohash == infohash && game.downloaded {
+                return Some(game.clone());
+            }
+        }
+
+        return None;
+    }
+
+    pub fn set_signature(&mut self, infohash: &str, signature: [u8; 64]) -> Option<Game> {
+        for game in self.values.iter_mut() {
+            if game.infohash != infohash || !game.downloaded {
+                continue;
+            }
+
+            let before = game.signature;
+            game.signature = signature;
+
+            if !game.is_signed() {
+                game.signature = before;
+                return None;
+            }
+
+            if !game.write_manifest(&game.folder) {
+                return None;
+            }
+
+            return Some(game.clone());
+        }
+
+        return None;
     }
 
     pub fn get_installed(&self) -> Vec<Game> {
