@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::address::Address;
 use crate::game::Game;
 use crate::neighbor::Neighbor;
@@ -9,6 +11,8 @@ const GET_NEIGHBORS: u8 = 3;
 const SEND_NEIGHBORS: u8 = 4;
 const GET_GAMES: u8 = 5;
 const SEND_GAMES: u8 = 6;
+const GET_HOLDER: u8 = 7;
+const HOLDING: u8 = 8;
 
 pub enum Message {
     Ping { port: u16, id: u64, depth: u8 },
@@ -17,6 +21,8 @@ pub enum Message {
     SendNeighbors { neighbors: Vec<Neighbor> },
     GetGames { criteria: Criteria },
     SendGames { games: Vec<Game> },
+    GetHolder { infohash: String },
+    Holding { torrent_port: u16 },
 }
 
 impl Message {
@@ -28,6 +34,8 @@ impl Message {
             Message::SendNeighbors { neighbors } => return write_send_neighbors(neighbors),
             Message::GetGames { criteria } => return write_get_games(criteria),
             Message::SendGames { games } => return write_send_games(games),
+            Message::GetHolder { infohash } => return write_get_holder(infohash),
+            Message::Holding { torrent_port } => return write_holding(*torrent_port),
         }
     }
 
@@ -45,6 +53,8 @@ impl Message {
             SEND_NEIGHBORS => return read_send_neighbors(rest),
             GET_GAMES => return read_get_games(rest),
             SEND_GAMES => return read_send_games(rest),
+            GET_HOLDER => return read_get_holder(rest),
+            HOLDING => return read_holding(rest),
             _ => return None,
         }
     }
@@ -142,6 +152,8 @@ fn put_game(bytes: &mut Vec<u8>, game: &Game) {
 
     put_text(bytes, &game.description);
     put_u64(bytes, game.disk_weight);
+    put_text(bytes, &game.infohash);
+
     bytes.push(game.downloadable as u8);
 }
 
@@ -343,12 +355,15 @@ fn take_game(bytes: &[u8], at: &mut usize) -> Option<Game> {
     let description = take_text(bytes, at);
     let disk_weight = take_u64(bytes, at);
     let downloadable = take_u8(bytes, at);
+    let infohash = take_text(bytes, at);
+    let sent = take_u64(bytes, at);
+    let session_sent = take_u64(bytes, at);
 
     if name.is_none() || version.is_none() || autor_key.is_none() || tags.is_none() {
         return None;
     }
 
-    if description.is_none() || disk_weight.is_none() || downloadable.is_none() {
+    if description.is_none() || disk_weight.is_none() || downloadable.is_none() || infohash.is_none() || sent.is_none() || session_sent.is_none() {
         return None;
     }
 
@@ -362,6 +377,11 @@ fn take_game(bytes: &[u8], at: &mut usize) -> Option<Game> {
         downloaded: false,
         downloadable: downloadable.unwrap() == 1,
         disk_weight: disk_weight.unwrap(),
+        infohash: infohash.unwrap(),
+        share: None,
+        folder: PathBuf::new(),
+        sent: sent.unwrap(),
+        session_sent: session_sent.unwrap(),
     };
 
     game.compute_ram_weight();
@@ -479,4 +499,40 @@ fn take_text(bytes: &[u8], at: &mut usize) -> Option<String> {
     *at += length;
 
     return Some(text.unwrap());
+}
+
+fn write_get_holder(infohash: &String) -> Vec<u8> {
+    let mut bytes = vec![GET_HOLDER];
+    put_text(&mut bytes, infohash);
+
+    return bytes;
+}
+
+fn write_holding(torrent_port: u16) -> Vec<u8> {
+    let mut bytes = vec![HOLDING];
+    put_u16(&mut bytes, torrent_port);
+
+    return bytes;
+}
+
+fn read_get_holder(bytes: &[u8]) -> Option<Message> {
+    let mut at = 0;
+
+    let infohash = take_text(bytes, &mut at);
+    if infohash.is_none() {
+        return None;
+    }
+
+    return Some(Message::GetHolder { infohash: infohash.unwrap() });
+}
+
+fn read_holding(bytes: &[u8]) -> Option<Message> {
+    let mut at = 0;
+
+    let torrent_port = take_u16(bytes, &mut at);
+    if torrent_port.is_none() {
+        return None;
+    }
+
+    return Some(Message::Holding { torrent_port: torrent_port.unwrap() });
 }

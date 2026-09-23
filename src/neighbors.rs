@@ -23,7 +23,10 @@ impl Neighbors {
         };
     }
     pub fn add(&mut self, id_me: u64, neighbor: Neighbor) {
-        
+        if neighbor.id == id_me {
+            return;
+        }
+
         if self.update(&neighbor) {
             return;
         }

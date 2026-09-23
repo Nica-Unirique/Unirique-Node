@@ -1,9 +1,9 @@
 use std::mem::size_of;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::fs;
 use serde_json;
-use sha2::{Digest, Sha256};
-use std::io::Read;
+use librqbit::spawn_utils::BlockingSpawner;
+use librqbit::{create_torrent, CreateTorrentOptions};
 
 #[derive(Clone)]
 pub struct Game {
@@ -18,6 +18,14 @@ pub struct Game {
     pub downloaded: bool,
     pub downloadable: bool,
     pub disk_weight: u64,
+    
+    pub share: Option<u32>,
+    pub infohash: String,
+
+    pub folder: PathBuf,
+
+    pub sent: u64,
+    pub session_sent: u64,
 }
 
 impl Game {
@@ -32,6 +40,11 @@ impl Game {
             downloaded: false,
             downloadable: false,
             disk_weight: 0,
+            share: Some(4),
+            infohash: String::new(),
+            folder: folder.clone(),
+            sent: 0,
+            session_sent: 0,
         };
 
         let manifest = folder.join("manifest.json");
@@ -42,7 +55,8 @@ impl Game {
         if text.is_err() {
             return None;
         }
-        let json = serde_json::from_str::<serde_json::Value>(&text.unwrap());
+        let text = text.unwrap();
+        let json = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}'));
         if json.is_err() {
             return None;
         }
@@ -90,12 +104,18 @@ impl Game {
         game.description = description.unwrap();
         game.compute_ram_weight();
 
-        let (downloaded, disk_weight) = Game::is_download(folder, &json);
-        game.downloaded = downloaded;
-        game.disk_weight = disk_weight;
+        let infohash = ensure_torrent(folder, &json);
+        if infohash.is_none() {
+            return None;
+        }
+        game.infohash = infohash.unwrap();
+
+        let content = folder.join("content");
+        game.downloaded = content.is_dir();
+        game.disk_weight = folder_size(&content);
 
         let mut downloadable = false;
-        if downloaded {
+        if game.downloaded {
             downloadable = json["downloadable"].as_bool().unwrap_or(false);
         }
         game.downloadable = downloadable;
@@ -112,90 +132,45 @@ impl Game {
         self.ram_weight = weight as u64;
     }
 
-    pub fn is_download(folder: &PathBuf, json: &serde_json::Value) -> (bool, u64) {
-        let files = json["files"].as_array();
-        if files.is_none() {
-            return (false, 0);
-        }
-        let mut disk_weight = 0;
-        let files = files.unwrap();
-        for file in files {
-            let relative = file["path"].as_str();
-            let size = file["size"].as_u64();
-            let hash = file["hash"].as_str();
+    pub fn folder_name(&self) -> String {
+        let mut name = String::new();
 
-            if relative.is_none() || size.is_none() || hash.is_none() {
-                return (false, 0);
-            }
-
-            let path = folder.join(relative.unwrap());
-            if !is_inside(folder, &path) {
-                return (false, 0);
-            }
-
-            let metadata = fs::metadata(&path);
-            if metadata.is_err() {
-                return (false, 0);
-            }
-            let metadata = metadata.unwrap();
-            if !metadata.is_file() || metadata.len() != size.unwrap() {
-                return (false, 0);
-            }
-            disk_weight += metadata.len();
-
-            let found = hash_of(&path);
-            if found.is_none() || found.unwrap() != hash.unwrap() {
-                return (false, 0);
+        for letter in self.name.chars() {
+            if letter.is_alphanumeric() || letter == '-' || letter == '_' {
+                name.push(letter);
+            } else {
+                name.push('_');
             }
         }
-        return (true, disk_weight);
-    }
-}
 
-/// Le fichier `path` est-il vraiment dans le dossier `folder` ?
-pub fn is_inside(folder: &Path, path: &Path) -> bool {
-    // Le vrai emplacement sur le disque : les `..` et les liens sont suivis.
-    let real_folder = fs::canonicalize(folder);
-    if real_folder.is_err() {
-        return false;
+        return format!("{}-{}.{}.{}", name, self.version[0], self.version[1], self.version[2]);
     }
 
-    let real_path = fs::canonicalize(path);
-    if real_path.is_err() {
-        return false;
-    }
+    pub fn write_manifest(&self, folder: &PathBuf) -> bool {
+        let manifest = serde_json::json!({
+            "name": self.name,
+            "version": self.version,
+            "autor_key": key_to_hex(&self.autor_key),
+            "tags": self.tags,
+            "description": self.description,
+            "infohash": self.infohash,
+        });
 
-    let real_folder = real_folder.unwrap();
-    let real_path = real_path.unwrap();
-    return real_path.starts_with(real_folder);
-}
-
-/// Le SHA-256 d'un fichier, en hexadecimal minuscule.
-pub fn hash_of(path: &Path) -> Option<String> {
-    let file = fs::File::open(path);
-    if file.is_err() {
-        return None;
-    }
-
-    let mut file = file.unwrap();
-    let mut hasher = Sha256::new();
-    let mut piece = [0u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut piece);
-        if read.is_err() {
-            return None;
+        let text = serde_json::to_string_pretty(&manifest);
+        if text.is_err() {
+            return false;
         }
 
-        let bytes_read = read.unwrap();
-        if bytes_read == 0 {
-            break;
-        }
-
-        hasher.update(&piece[..bytes_read]);
+        return fs::write(folder.join("manifest.json"), text.unwrap()).is_ok();
     }
 
-    let hash = hasher.finalize();
-    return Some(format!("{:x}", hash));
+    pub fn is_exhausted(&self) -> bool {
+        if self.share.is_none() {
+            return false;
+        }
+
+        return self.sent >= self.share.unwrap() as u64 * self.disk_weight;
+    }
 }
 
 pub fn key_from_hex(text: &str) -> Option<[u8; 32]> {
@@ -216,3 +191,126 @@ pub fn key_from_hex(text: &str) -> Option<[u8; 32]> {
     
     return Some(key);
 }
+
+pub fn key_to_hex(key: &[u8; 32]) -> String {
+    let mut text = String::new();
+
+    for byte in key.iter() {
+        text += &format!("{:02x}", byte);
+    }
+
+    return text;
+}
+
+fn ensure_torrent(folder: &PathBuf, json: &serde_json::Value) -> Option<String> {
+    let known = json["infohash"].as_str();
+    if known.is_some() && folder.join("game.torrent").is_file() {
+        return Some(known.unwrap().to_string());
+    }
+
+    let made = make_torrent(folder);
+    if made.is_none() {
+        return None;
+    }
+
+    let infohash = made.unwrap();
+    write_infohash(folder, &infohash);
+
+    return Some(infohash);
+}
+
+fn folder_size(folder: &PathBuf) -> u64 {
+    let entries = fs::read_dir(folder);
+    if entries.is_err() {
+        return 0;
+    }
+
+    let mut size = 0;
+
+    for entry in entries.unwrap() {
+        if entry.is_err() {
+            continue;
+        }
+
+        let path = entry.unwrap().path();
+
+        if path.is_dir() {
+            size += folder_size(&path);
+            continue;
+        }
+
+        let metadata = fs::metadata(&path);
+        if metadata.is_ok() {
+            size += metadata.unwrap().len();
+        }
+    }
+
+    return size;
+}
+
+fn make_torrent(folder: &PathBuf) -> Option<String> {
+    let runtime = tokio::runtime::Runtime::new();
+    if runtime.is_err() {
+        eprintln!("Failed to start tokio");
+        return None;
+    }
+
+    let content = folder.join("content");
+    let torrent = runtime.unwrap().block_on(async {
+        let spawner = BlockingSpawner::new(1);
+        return create_torrent(&content, CreateTorrentOptions::default(), &spawner).await;
+    });
+    if torrent.is_err() {
+        eprintln!("Failed to create the torrent: {:?}", torrent.err());
+        return None;
+    }
+
+    let torrent = torrent.unwrap();
+
+    let bytes = torrent.as_bytes();
+    if bytes.is_err() {
+        eprintln!("Failed to encode the torrent");
+        return None;
+    }
+
+    if fs::write(folder.join("game.torrent"), bytes.unwrap()).is_err() {
+        eprintln!("Failed to write game.torrent");
+        return None;
+    }
+
+    return Some(torrent.info_hash().as_string());
+}
+
+fn write_infohash(folder: &PathBuf, infohash: &str) {
+    let path = folder.join("manifest.json");
+
+    let text = fs::read_to_string(&path);
+    if text.is_err() {
+        eprintln!("Failed to read manifest.json");
+        return;
+    }
+
+    let text = text.unwrap();
+    let json = serde_json::from_str::<serde_json::Value>(text.trim_start_matches('\u{feff}'));
+    if json.is_err() {
+        eprintln!("manifest.json is not valid json");
+        return;
+    }
+
+    let mut json = json.unwrap();
+    json["infohash"] = serde_json::Value::from(infohash);
+
+    let object = json.as_object_mut();
+    if object.is_some() {
+        object.unwrap().remove("files");
+    }
+
+    let written = serde_json::to_string_pretty(&json);
+    if written.is_err() || fs::write(&path, written.unwrap()).is_err() {
+        eprintln!("Failed to write manifest.json");
+        return;
+    }
+
+    println!("infohash: {}", infohash);
+}
+

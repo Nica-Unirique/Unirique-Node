@@ -1,10 +1,19 @@
+use std::fs;
+use std::path::PathBuf;
+use tokio::runtime::Runtime;
+use librqbit::{AddTorrent, AddTorrentOptions, ListenerMode, ListenerOptions, Session, SessionOptions};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::str::FromStr;
+use librqbit::api::TorrentIdOrHash;
+use librqbit::dht::Id20;
+use librqbit::ManagedTorrent;
 
+use crate::games::GAMES_FOLDER;
 use crate::address::Address;
 use crate::criteria::Criteria;
 use crate::game::Game;
@@ -37,11 +46,28 @@ pub struct Node {
     neighbors: Mutex<Neighbors>,
     games: Mutex<Games>,
     servers: Mutex<Servers>,
+
+    runtime: Runtime,
+    torrents: Arc<Session>,
 }
 
 impl Node {
-    pub fn new(settings: Settings) -> Node {
-        return Node {
+    pub fn new(settings: Settings) -> Option<Node> {
+        let runtime = Runtime::new();
+        if runtime.is_err() {
+            eprintln!("Failed to start tokio");
+            return None;
+        }
+        let runtime = runtime.unwrap();
+
+        let port = settings.address.port + TORRENT_PORT_SHIFT;
+        let torrents = runtime.block_on(Session::new_with_opts(PathBuf::from(GAMES_FOLDER), torrent_options(port)));
+        if torrents.is_err() {
+            eprintln!("Failed to start torrents on port {}", port);
+            return None;
+        }
+
+        return Some(Node {
             ismain: settings.ismain,
             address: settings.address,
             id: settings.id,
@@ -49,7 +75,36 @@ impl Node {
             neighbors: Mutex::new(Neighbors::new()),
             games: Mutex::new(Games::new()),
             servers: Mutex::new(Servers::new()),
-        };
+            runtime,
+            torrents: torrents.unwrap(),
+        });
+    }
+
+    fn seed_games(&self) {
+        let games = self.games.lock().unwrap().get_all();
+
+        for game in games.iter() {
+            if game.downloaded && !game.is_exhausted() {
+                self.seed(game);
+            }
+        }
+    }
+
+    fn seed(&self, game: &Game) {
+        let torrent = fs::read(game.folder.join("game.torrent"));
+        if torrent.is_err() {
+            return;
+        }
+
+        let mut options = AddTorrentOptions::default();
+        options.output_folder = Some(game.folder.join("content").to_string_lossy().to_string());
+        options.overwrite = true;
+        options.disable_trackers = true;
+
+        let added = self.runtime.block_on(self.torrents.add_torrent(AddTorrent::from_bytes(torrent.unwrap()), Some(options)));
+        if added.is_err() {
+            eprintln!("Failed to share {}", game.name);
+        }
     }
 
     pub fn run(self: &Arc<Self>) {
@@ -59,6 +114,7 @@ impl Node {
             return;
         }
 
+        self.seed_games();
         self.listen(listener.unwrap());
         self.upkeep();
     }
@@ -125,6 +181,8 @@ impl Node {
             }
             Message::Pong { .. } => return None,
             Message::SendNeighbors { .. } => return None,
+            Message::GetHolder { infohash } => return self.answer_get_holder(infohash),
+            Message::Holding { .. } => return None,
         }
     }
 
@@ -174,6 +232,7 @@ impl Node {
         loop {
             self.servers.lock().unwrap().forget_dead();
             self.find_new_neighbors();
+            self.apply_quotas();
             self.adjust_depth();
             self.neighbors.lock().unwrap().save();
             thread::sleep(UPKEEP_DELAY);
@@ -284,6 +343,120 @@ impl Node {
 
         return read_message(&mut stream);
     }
+
+    fn answer_get_holder(&self, infohash: &str) -> Option<Message> {
+        if !self.games.lock().unwrap().is_holding(infohash) {
+            return None;
+        }
+
+        return Some(Message::Holding { torrent_port: self.address.port + TORRENT_PORT_SHIFT });
+    }
+
+    fn find_holders(&self, infohash: &str) -> Vec<SocketAddr> {
+        let contacts = self.neighbors.lock().unwrap().contacts();
+        let mut holders = Vec::new();
+
+        for address in contacts {
+            let answer = self.ask(address, Message::GetHolder { infohash: infohash.to_string() });
+
+            match answer {
+                Some(Message::Holding { torrent_port }) => holders.push(SocketAddr::new(address.ip, torrent_port)),
+                _ => {}
+            }
+        }
+
+        return holders;
+    }
+
+    pub fn download(&self, game: &Game) -> bool {
+        let holders = self.find_holders(&game.infohash);
+        if holders.is_empty() {
+            eprintln!("No one shares {}", game.name);
+            return false;
+        }
+
+        let folder = PathBuf::from(GAMES_FOLDER).join(game.folder_name());
+        if !self.fetch(&game.infohash, &folder, holders) {
+            eprintln!("Failed to download {}", game.name);
+            return false;
+        }
+
+        if !game.write_manifest(&folder) {
+            eprintln!("Failed to write the manifest of {}", game.name);
+            return false;
+        }
+
+        let mut games = self.games.lock().unwrap();
+        games.add_local(&folder);
+        games.load_shares();
+
+        return true;
+    }
+
+    fn fetch(&self, infohash: &str, folder: &PathBuf, holders: Vec<SocketAddr>) -> bool {
+        let mut options = AddTorrentOptions::default();
+        options.output_folder = Some(folder.join("content").to_string_lossy().to_string());
+        options.disable_trackers = true;
+        options.initial_peers = Some(holders);
+
+        let magnet = format!("magnet:?xt=urn:btih:{}", infohash);
+
+        return self.runtime.block_on(async {
+            let added = self.torrents.add_torrent(AddTorrent::from_url(magnet), Some(options)).await;
+            if added.is_err() {
+                return false;
+            }
+
+            let handle = added.unwrap().into_handle();
+            if handle.is_none() {
+                return false;
+            }
+
+            return handle.unwrap().wait_until_completed().await.is_ok();
+        });
+    }
+
+    fn apply_quotas(&self) {
+        let mut to_pause = Vec::new();
+
+        let mut games = self.games.lock().unwrap();
+
+        for game in games.values.iter_mut() {
+            if !game.downloaded || game.is_exhausted() {
+                continue;
+            }
+
+            let torrent = self.find_torrent(&game.infohash);
+            if torrent.is_none() {
+                continue;
+            }
+            let torrent = torrent.unwrap();
+
+            let uploaded = torrent.stats().uploaded_bytes;
+            game.sent += uploaded.saturating_sub(game.session_sent);
+            game.session_sent = uploaded;
+
+            if game.is_exhausted() {
+                to_pause.push(torrent);
+            }
+        }
+
+        games.save_shares();
+        drop(games);
+
+        for torrent in to_pause.iter() {
+            let _ = self.runtime.block_on(self.torrents.pause(torrent));
+        }
+    }
+
+    fn find_torrent(&self, infohash: &str) -> Option<Arc<ManagedTorrent>> {
+        let id = Id20::from_str(infohash);
+        if id.is_err() {
+            return None;
+        }
+
+        return self.torrents.get(TorrentIdOrHash::Hash(id.unwrap()));
+    }
 }
 
 fn read_message(stream: &mut TcpStream) -> Option<Message> {
@@ -320,4 +493,20 @@ fn write_message(stream: &mut TcpStream, message: &Message) -> bool {
     }
 
     return true;
+}
+
+const TORRENT_PORT_SHIFT: u16 = 10000;
+
+fn torrent_options(port: u16) -> SessionOptions {
+    let mut listen = ListenerOptions::default();
+    listen.mode = ListenerMode::TcpOnly;
+    listen.listen_addr = SocketAddr::from(([0, 0, 0, 0], port));
+
+    let mut options = SessionOptions::default();
+    options.dht = None;
+    options.disable_trackers = true;
+    options.disable_local_service_discovery = true;
+    options.listen = Some(listen);
+
+    return options;
 }
