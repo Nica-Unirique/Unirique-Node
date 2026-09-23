@@ -1,0 +1,21 @@
+[package]
+name = "unirique_node"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+name = "unirique_node"
+path = "src/lib.rs"
+
+[[bin]]
+name = "node"
+path = "src/main.rs"
+
+[dependencies]
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[profile.release]
+opt-level = "s"
