@@ -1,7 +1,8 @@
 use ed25519_dalek::{Signature, VerifyingKey};
 
+use wire::{put_tags, put_text, put_u32, put_u64};
+
 use crate::game::Game;
-use crate::message::{put_tags, put_text, put_u32, put_u64};
 use crate::server::Server;
 
 pub fn game_bytes(game: &Game) -> Vec<u8> {
@@ -44,33 +45,4 @@ pub fn verify(key: &[u8; 32], bytes: &[u8], signature: &[u8; 64]) -> bool {
     let signature = Signature::from_bytes(signature);
 
     return key.unwrap().verify_strict(bytes, &signature).is_ok();
-}
-
-pub fn signature_from_hex(text: &str) -> Option<[u8; 64]> {
-    if text.len() != 128 {
-        return None;
-    }
-
-    let mut signature = [0u8; 64];
-
-    for place in 0..64 {
-        let byte = u8::from_str_radix(&text[place * 2..place * 2 + 2], 16);
-        if byte.is_err() {
-            return None;
-        }
-
-        signature[place] = byte.unwrap();
-    }
-
-    return Some(signature);
-}
-
-pub fn signature_to_hex(signature: &[u8; 64]) -> String {
-    let mut text = String::new();
-
-    for byte in signature.iter() {
-        text += &format!("{:02x}", byte);
-    }
-
-    return text;
 }

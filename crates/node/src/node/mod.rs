@@ -1,0 +1,102 @@
+﻿//! Le node : il relie les autres crates entre eux.
+//!
+//! - `network.rs` : la porte reseau, ce que les autres nodes nous demandent ;
+//! - `local.rs`   : la porte locale, ce que le client du joueur nous demande ;
+//! - `upkeep.rs`  : l'entretien, toutes les 10 secondes ;
+//! - `lookup.rs`  : la recherche des sources d'un jeu, par vagues ;
+//! - `share.rs`   : le partage et le telechargement des jeux.
+
+mod local;
+mod lookup;
+mod network;
+mod share;
+mod shelves;
+mod upkeep;
+
+use std::net::TcpListener;
+use std::sync::atomic::AtomicU8;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use catalog::{Games, Holders, Servers, GAMES_FOLDER};
+use neighbors::{Address, Neighbors};
+use torrents::Torrents;
+
+use crate::settings::Settings;
+
+const MAIN_NODE: &str = "127.0.0.1:8735";
+const ENTER_TRIES: u32 = 10;
+
+const UPKEEP_DELAY: Duration = Duration::from_secs(10);
+const ANSWER_WITHIN: Duration = Duration::from_secs(5);
+const BUSY_MAX: usize = 64;
+const DEPTH_MAX: u8 = 63;
+const WEIGHT_HIGH: u64 = 10 * 1024 * 1024;
+const WEIGHT_LOW: u64 = 5 * 1024 * 1024;
+const NEIGHBORS_ASKED: usize = 128;
+
+const TORRENT_PORT_SHIFT: u16 = 10000;
+const LOCAL_PORT_SHIFT: u16 = 20000;
+
+const LOOKUP_WIDTH: usize = 3;
+const LOOKUP_WAVES: usize = 20;
+const CLOSER_SENT: usize = 16;
+const HOLDERS_WANTED: usize = 8;
+const ANNOUNCE_TO: usize = 8;
+const ANNOUNCE_EVERY: u32 = 60;
+const SHELF_COPIES: usize = 4;
+
+pub struct Node {
+    ismain: bool,
+    id: u64,
+    depth: AtomicU8,
+    address: Address,
+
+    neighbors: Mutex<Neighbors>,
+    games: Mutex<Games>,
+    servers: Mutex<Servers>,
+    holders: Mutex<Holders>,
+
+    torrents: Torrents,
+}
+
+impl Node {
+    pub fn new(settings: Settings) -> Option<Node> {
+        let torrents = Torrents::new(GAMES_FOLDER, settings.address.port + TORRENT_PORT_SHIFT);
+        if torrents.is_none() {
+            return None;
+        }
+
+        return Some(Node {
+            ismain: settings.ismain,
+            address: settings.address,
+            id: settings.id,
+            depth: AtomicU8::new(0),
+            neighbors: Mutex::new(Neighbors::new()),
+            games: Mutex::new(Games::new()),
+            servers: Mutex::new(Servers::new()),
+            holders: Mutex::new(Holders::new()),
+            torrents: torrents.unwrap(),
+        });
+    }
+
+    pub fn run(self: &Arc<Self>) {
+        let listener = TcpListener::bind(self.address.socket());
+        if listener.is_err() {
+            eprintln!("Failed to listen on {}", self.address.to_text());
+            return;
+        }
+
+        let local = TcpListener::bind(("127.0.0.1", self.address.port + LOCAL_PORT_SHIFT));
+        if local.is_err() {
+            eprintln!("Failed to open the local door on port {}", self.address.port + LOCAL_PORT_SHIFT);
+            return;
+        }
+
+        self.complete_torrents();
+        self.seed_games();
+        self.listen(listener.unwrap());
+        self.listen_local(local.unwrap());
+        self.upkeep();
+    }
+}

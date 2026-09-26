@@ -1,4 +1,6 @@
+use crate::criteria::ServerCriteria;
 use crate::server::Server;
+use crate::shelves::{on_shelf, server_positions};
 
 pub struct Servers {
     pub values: Vec<Server>,
@@ -25,6 +27,31 @@ impl Servers {
 
         self.ram_weight += server.ram_weight;
         self.values.push(server);
+    }
+
+    pub fn get_by_criteria(&self, criteria: &ServerCriteria) -> Vec<Server> {
+        let mut found = Vec::new();
+
+        for server in self.values.iter() {
+            if !server.is_dead() && server.is_valid() && criteria.matches(server) {
+                found.push(server.clone());
+            }
+        }
+
+        return found;
+    }
+
+    pub fn forget_outside(&mut self, id: u64, depth: u8) {
+        let mut index = self.values.len();
+
+        while index > 0 {
+            index -= 1;
+
+            if !on_shelf(&server_positions(&self.values[index]), id, depth) {
+                self.ram_weight -= self.values[index].ram_weight;
+                self.values.remove(index);
+            }
+        }
     }
 
     pub fn forget_dead(&mut self) {

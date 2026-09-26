@@ -1,10 +1,10 @@
+use std::fs;
 use std::mem::size_of;
 use std::path::PathBuf;
-use std::fs;
-use serde_json;
-use librqbit::spawn_utils::BlockingSpawner;
-use librqbit::{create_torrent, CreateTorrentOptions};
-use crate::signature::{game_bytes, signature_from_hex, signature_to_hex, verify};
+
+use wire::{key_from_hex, key_to_hex, signature_from_hex, signature_to_hex};
+
+use crate::signature::{game_bytes, verify};
 
 #[derive(Clone)]
 pub struct Game {
@@ -19,7 +19,7 @@ pub struct Game {
     pub downloaded: bool,
     pub downloadable: bool,
     pub disk_weight: u64,
-    
+
     pub share: Option<u32>,
     pub infohash: String,
 
@@ -70,7 +70,7 @@ impl Game {
             return None;
         }
         game.name = name.unwrap();
-        
+
         let version = json["version"].as_array().map(|arr| {
             [
                 arr.get(0).and_then(|v| v.as_u64()).unwrap_or(0) as u32,
@@ -117,11 +117,12 @@ impl Game {
 
         game.compute_ram_weight();
 
-        let infohash = ensure_torrent(folder, &json);
-        if infohash.is_none() {
-            return None;
+        // Sans game.torrent, l'infohash reste vide : le node fabriquera le
+        // torrent (crate `torrents`), puis appellera `Games::set_infohash`.
+        let infohash = json["infohash"].as_str();
+        if infohash.is_some() && folder.join("game.torrent").is_file() {
+            game.infohash = infohash.unwrap().to_string();
         }
-        game.infohash = infohash.unwrap();
 
         let content = folder.join("content");
         game.downloaded = content.is_dir();
@@ -132,7 +133,7 @@ impl Game {
             downloadable = json["downloadable"].as_bool().unwrap_or(false);
         }
         game.downloadable = downloadable;
-        
+
         Some(game)
     }
 
@@ -143,6 +144,10 @@ impl Game {
             + self.description.capacity();
 
         self.ram_weight = weight as u64;
+    }
+
+    pub fn needs_torrent(&self) -> bool {
+        return self.infohash.is_empty();
     }
 
     pub fn folder_name(&self) -> String {
@@ -191,115 +196,7 @@ impl Game {
     }
 }
 
-pub fn key_from_hex(text: &str) -> Option<[u8; 32]> {
-    if text.len() != 64 {
-        return None;
-    }
-
-    let mut key = [0u8; 32];
-    for place in 0..32 {
-        let pair = &text[place * 2..place * 2 + 2];
-        let byte = u8::from_str_radix(pair, 16);
-        if byte.is_err() {
-            return None;
-        }
-
-        key[place] = byte.unwrap();
-    }
-    
-    return Some(key);
-}
-
-pub fn key_to_hex(key: &[u8; 32]) -> String {
-    let mut text = String::new();
-
-    for byte in key.iter() {
-        text += &format!("{:02x}", byte);
-    }
-
-    return text;
-}
-
-fn ensure_torrent(folder: &PathBuf, json: &serde_json::Value) -> Option<String> {
-    let known = json["infohash"].as_str();
-    if known.is_some() && folder.join("game.torrent").is_file() {
-        return Some(known.unwrap().to_string());
-    }
-
-    let made = make_torrent(folder);
-    if made.is_none() {
-        return None;
-    }
-
-    let infohash = made.unwrap();
-    write_infohash(folder, &infohash);
-
-    return Some(infohash);
-}
-
-fn folder_size(folder: &PathBuf) -> u64 {
-    let entries = fs::read_dir(folder);
-    if entries.is_err() {
-        return 0;
-    }
-
-    let mut size = 0;
-
-    for entry in entries.unwrap() {
-        if entry.is_err() {
-            continue;
-        }
-
-        let path = entry.unwrap().path();
-
-        if path.is_dir() {
-            size += folder_size(&path);
-            continue;
-        }
-
-        let metadata = fs::metadata(&path);
-        if metadata.is_ok() {
-            size += metadata.unwrap().len();
-        }
-    }
-
-    return size;
-}
-
-fn make_torrent(folder: &PathBuf) -> Option<String> {
-    let runtime = tokio::runtime::Runtime::new();
-    if runtime.is_err() {
-        eprintln!("Failed to start tokio");
-        return None;
-    }
-
-    let content = folder.join("content");
-    let torrent = runtime.unwrap().block_on(async {
-        let spawner = BlockingSpawner::new(1);
-        return create_torrent(&content, CreateTorrentOptions::default(), &spawner).await;
-    });
-    if torrent.is_err() {
-        eprintln!("Failed to create the torrent: {:?}", torrent.err());
-        return None;
-    }
-
-    let torrent = torrent.unwrap();
-
-    let bytes = torrent.as_bytes();
-    if bytes.is_err() {
-        eprintln!("Failed to encode the torrent");
-        return None;
-    }
-
-    if fs::write(folder.join("game.torrent"), bytes.unwrap()).is_err() {
-        eprintln!("Failed to write game.torrent");
-        return None;
-    }
-
-    return Some(torrent.info_hash().as_string());
-}
-
-fn write_infohash(folder: &PathBuf, infohash: &str) {
+pub fn write_infohash(folder: &PathBuf, infohash: &str) {
     let path = folder.join("manifest.json");
 
     let text = fs::read_to_string(&path);
@@ -332,3 +229,31 @@ fn write_infohash(folder: &PathBuf, infohash: &str) {
     println!("infohash: {}", infohash);
 }
 
+fn folder_size(folder: &PathBuf) -> u64 {
+    let entries = fs::read_dir(folder);
+    if entries.is_err() {
+        return 0;
+    }
+
+    let mut size = 0;
+
+    for entry in entries.unwrap() {
+        if entry.is_err() {
+            continue;
+        }
+
+        let path = entry.unwrap().path();
+
+        if path.is_dir() {
+            size += folder_size(&path);
+            continue;
+        }
+
+        let metadata = fs::metadata(&path);
+        if metadata.is_ok() {
+            size += metadata.unwrap().len();
+        }
+    }
+
+    return size;
+}

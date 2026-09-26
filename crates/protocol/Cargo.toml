@@ -1,0 +1,9 @@
+[package]
+name = "protocol"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+wire = { path = "../wire" }
+neighbors = { path = "../neighbors" }
+catalog = { path = "../catalog" }

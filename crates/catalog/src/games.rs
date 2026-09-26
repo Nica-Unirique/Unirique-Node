@@ -1,9 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
-use crate::criteria::Criteria;
 
+use wire::key_to_hex;
+
+use crate::criteria::Criteria;
 use crate::game::Game;
-use crate::game::key_to_hex;
+use crate::shelves::{game_positions, on_shelf};
+use crate::shares::{escape_csv, parse_share, read_default_share, share_to_text, version_to_text, SHARES_FILE};
 
 pub const GAMES_FOLDER: &str = "Games";
 
@@ -27,20 +30,6 @@ impl Games {
         games.load_folder();
         games.load_shares();
 
-        //let entries = fs::read_dir(&games.folder);
-        //if entries.is_err() {
-        //    eprintln!("Failed to read games folder: {:?}", entries.err().unwrap());
-        //    return games;
-        //}
-        //
-        //for entry in entries.unwrap() {
-        //    if entry.is_err() {
-        //        continue;
-        //    }
-        //    let entry = entry.unwrap();
-        //    
-        //    games.add_local(&entry.path());
-        //}
         games
     }
 
@@ -104,6 +93,44 @@ impl Games {
         return game_found;
     }
 
+    /// Oublie les fiches recues qui ne sont plus sur mon etagere. Les jeux
+    /// telecharges restent : ils sont a moi.
+    pub fn forget_outside(&mut self, id: u64, depth: u8) {
+        let mut index = self.values.len();
+
+        while index > 0 {
+            index -= 1;
+
+            let game = &self.values[index];
+            if game.downloaded || on_shelf(&game_positions(game), id, depth) {
+                continue;
+            }
+
+            self.ram_weight -= game.ram_weight;
+            self.values.remove(index);
+        }
+    }
+
+    pub fn needing_torrent(&self) -> Vec<PathBuf> {
+        let mut folders = Vec::new();
+
+        for game in self.values.iter() {
+            if game.downloaded && game.needs_torrent() {
+                folders.push(game.folder.clone());
+            }
+        }
+
+        return folders;
+    }
+
+    pub fn set_infohash(&mut self, folder: &PathBuf, infohash: &str) {
+        for game in self.values.iter_mut() {
+            if &game.folder == folder {
+                game.infohash = infohash.to_string();
+            }
+        }
+    }
+
     pub fn load_shares(&mut self) {
         let default = read_default_share();
 
@@ -123,7 +150,7 @@ impl Games {
             }
 
             for game in self.values.iter_mut() {
-                if game.name == parts[0]
+                if escape_csv(&game.name) == parts[0]
                     && version_to_text(game.version) == parts[1]
                     && key_to_hex(&game.autor_key) == parts[2]
                 {
@@ -144,7 +171,7 @@ impl Games {
 
             text += &format!(
                 "{},{},{},{},{}\n",
-                game.name,
+                escape_csv(&game.name),
                 version_to_text(game.version),
                 key_to_hex(&game.autor_key),
                 share_to_text(game.share),
@@ -246,50 +273,3 @@ impl Games {
         return found;
     }
 }
-
-
-const SHARE_FILE: &str = "data/share.csv";
-const SHARES_FILE: &str = "data/shares.csv";
-const SHARE_DEFAULT: Option<u32> = Some(4);
-
-fn read_default_share() -> Option<u32> {
-    let text = fs::read_to_string(SHARE_FILE);
-    if text.is_err() {
-        let _ = fs::write(SHARE_FILE, format!("share\n{}\n", share_to_text(SHARE_DEFAULT)));
-        return SHARE_DEFAULT;
-    }
-
-    let text = text.unwrap();
-    let line = text.lines().nth(1);
-    if line.is_none() {
-        return SHARE_DEFAULT;
-    }
-
-    return parse_share(line.unwrap().trim());
-}
-
-fn parse_share(text: &str) -> Option<u32> {
-    if text == "infinite" {
-        return None;
-    }
-
-    let number = text.parse::<u32>();
-    if number.is_err() || number.clone().unwrap() < 1 {
-        return SHARE_DEFAULT;
-    }
-
-    return Some(number.unwrap());
-}
-
-fn share_to_text(share: Option<u32>) -> String {
-    if share.is_none() {
-        return String::from("infinite");
-    }
-
-    return share.unwrap().to_string();
-}
-
-fn version_to_text(version: [u32; 3]) -> String {
-    return format!("{}.{}.{}", version[0], version[1], version[2]);
-}
-

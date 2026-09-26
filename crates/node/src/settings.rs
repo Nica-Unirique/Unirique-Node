@@ -1,7 +1,7 @@
-use std::fs;
+﻿use std::fs;
 use std::path::Path;
 
-use crate::address::Address;
+use neighbors::Address;
 
 pub struct Settings {
     pub ismain: bool,

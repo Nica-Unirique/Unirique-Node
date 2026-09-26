@@ -1,8 +1,7 @@
-use std::env;
+﻿use std::env;
 use std::sync::Arc;
 
-use unirique_node::node::Node;
-use unirique_node::settings::Settings;
+use node::{Node, Settings};
 
 fn main() {
     let settings = Settings::from_arguments(env::args().skip(1));

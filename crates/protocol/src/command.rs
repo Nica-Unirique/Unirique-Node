@@ -1,8 +1,10 @@
-use crate::criteria::Criteria;
-use crate::game::Game;
-use crate::message::{put_server, take_server, take_signature};
-use crate::server::Server;
-use crate::message::{put_criteria, put_game, put_text, put_u16, take_criteria, take_game, take_text, take_u16, take_u8};
+use catalog::{Criteria, Game, Server, ServerCriteria};
+use wire::{put_text, take_signature, take_text, take_u8};
+
+use crate::encode::{
+    put_criteria, put_game, put_games, put_server, put_server_criteria, put_servers, take_criteria, take_game,
+    take_games, take_server, take_server_criteria, take_servers,
+};
 
 const SEARCH: u8 = 1;
 const DOWNLOAD: u8 = 2;
@@ -13,12 +15,15 @@ const DONE: u8 = 6;
 const CHALLENGE: u8 = 7;
 const TO_SIGN: u8 = 8;
 const SIGNED: u8 = 9;
+const SEARCH_SERVERS: u8 = 10;
+const SERVERS: u8 = 11;
 
 pub enum Subject {
     Game { infohash: String },
     Server { server: Server },
 }
 
+/// Ce que le client (ou le serveur) du joueur dit a son node, par la porte locale.
 pub enum Command {
     Search { criteria: Criteria },
     Download { game: Game },
@@ -29,6 +34,8 @@ pub enum Command {
     Challenge { what: Subject },
     ToSign { bytes: Vec<u8> },
     Signed { what: Subject, signature: [u8; 64] },
+    SearchServers { criteria: ServerCriteria },
+    Servers { servers: Vec<Server> },
 }
 
 impl Command {
@@ -43,6 +50,8 @@ impl Command {
             Command::Challenge { what } => return write_challenge(what),
             Command::ToSign { bytes } => return write_to_sign(bytes),
             Command::Signed { what, signature } => return write_signed(what, signature),
+            Command::SearchServers { criteria } => return write_search_servers(criteria),
+            Command::Servers { servers } => return write_servers(servers),
         }
     }
 
@@ -63,6 +72,8 @@ impl Command {
             CHALLENGE => return read_challenge(rest),
             TO_SIGN => return read_to_sign(rest),
             SIGNED => return read_signed(rest),
+            SEARCH_SERVERS => return read_search_servers(rest),
+            SERVERS => return read_servers(rest),
             _ => return None,
         }
     }
@@ -100,13 +111,59 @@ fn write_set_share(infohash: &String, share: Option<u32>) -> Vec<u8> {
 
 fn write_games(games: &Vec<Game>) -> Vec<u8> {
     let mut bytes = vec![GAMES];
-    put_u16(&mut bytes, games.len() as u16);
-
-    for game in games.iter() {
-        put_game(&mut bytes, game);
-    }
+    put_games(&mut bytes, games);
 
     return bytes;
+}
+
+fn write_challenge(what: &Subject) -> Vec<u8> {
+    let mut bytes = vec![CHALLENGE];
+    put_subject(&mut bytes, what);
+
+    return bytes;
+}
+
+fn write_to_sign(to_sign: &Vec<u8>) -> Vec<u8> {
+    let mut bytes = vec![TO_SIGN];
+    bytes.extend_from_slice(&(to_sign.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(to_sign);
+
+    return bytes;
+}
+
+fn write_signed(what: &Subject, signature: &[u8; 64]) -> Vec<u8> {
+    let mut bytes = vec![SIGNED];
+    put_subject(&mut bytes, what);
+    bytes.extend_from_slice(signature);
+
+    return bytes;
+}
+
+fn write_search_servers(criteria: &ServerCriteria) -> Vec<u8> {
+    let mut bytes = vec![SEARCH_SERVERS];
+    put_server_criteria(&mut bytes, criteria);
+
+    return bytes;
+}
+
+fn write_servers(servers: &Vec<Server>) -> Vec<u8> {
+    let mut bytes = vec![SERVERS];
+    put_servers(&mut bytes, servers);
+
+    return bytes;
+}
+
+fn put_subject(bytes: &mut Vec<u8>, what: &Subject) {
+    match what {
+        Subject::Game { infohash } => {
+            bytes.push(1);
+            put_text(bytes, infohash);
+        }
+        Subject::Server { server } => {
+            bytes.push(2);
+            put_server(bytes, server);
+        }
+    }
 }
 
 // ---------- Lecture ----------
@@ -160,23 +217,12 @@ fn read_set_share(bytes: &[u8]) -> Option<Command> {
 fn read_games(bytes: &[u8]) -> Option<Command> {
     let mut at = 0;
 
-    let count = take_u16(bytes, &mut at);
-    if count.is_none() {
+    let games = take_games(bytes, &mut at);
+    if games.is_none() {
         return None;
     }
 
-    let mut games = Vec::new();
-
-    for _ in 0..count.unwrap() {
-        let game = take_game(bytes, &mut at);
-        if game.is_none() {
-            return None;
-        }
-
-        games.push(game.unwrap());
-    }
-
-    return Some(Command::Games { games });
+    return Some(Command::Games { games: games.unwrap() });
 }
 
 fn read_done(bytes: &[u8]) -> Option<Command> {
@@ -188,41 +234,6 @@ fn read_done(bytes: &[u8]) -> Option<Command> {
     }
 
     return Some(Command::Done { ok: ok.unwrap() == 1 });
-}
-fn write_challenge(what: &Subject) -> Vec<u8> {
-    let mut bytes = vec![CHALLENGE];
-    put_subject(&mut bytes, what);
-
-    return bytes;
-}
-
-fn write_to_sign(to_sign: &Vec<u8>) -> Vec<u8> {
-    let mut bytes = vec![TO_SIGN];
-    bytes.extend_from_slice(&(to_sign.len() as u32).to_le_bytes());
-    bytes.extend_from_slice(to_sign);
-
-    return bytes;
-}
-
-fn write_signed(what: &Subject, signature: &[u8; 64]) -> Vec<u8> {
-    let mut bytes = vec![SIGNED];
-    put_subject(&mut bytes, what);
-    bytes.extend_from_slice(signature);
-
-    return bytes;
-}
-
-fn put_subject(bytes: &mut Vec<u8>, what: &Subject) {
-    match what {
-        Subject::Game { infohash } => {
-            bytes.push(1);
-            put_text(bytes, infohash);
-        }
-        Subject::Server { server } => {
-            bytes.push(2);
-            put_server(bytes, server);
-        }
-    }
 }
 
 fn read_challenge(bytes: &[u8]) -> Option<Command> {
@@ -263,6 +274,28 @@ fn read_signed(bytes: &[u8]) -> Option<Command> {
     }
 
     return Some(Command::Signed { what: what.unwrap(), signature: signature.unwrap() });
+}
+
+fn read_search_servers(bytes: &[u8]) -> Option<Command> {
+    let mut at = 0;
+
+    let criteria = take_server_criteria(bytes, &mut at);
+    if criteria.is_none() {
+        return None;
+    }
+
+    return Some(Command::SearchServers { criteria: criteria.unwrap() });
+}
+
+fn read_servers(bytes: &[u8]) -> Option<Command> {
+    let mut at = 0;
+
+    let servers = take_servers(bytes, &mut at);
+    if servers.is_none() {
+        return None;
+    }
+
+    return Some(Command::Servers { servers: servers.unwrap() });
 }
 
 fn take_subject(bytes: &[u8], at: &mut usize) -> Option<Subject> {

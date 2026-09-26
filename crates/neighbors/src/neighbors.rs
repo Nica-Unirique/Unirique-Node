@@ -180,7 +180,7 @@ impl Neighbors {
     }
 }
 
-fn common_bits(a: u64, b: u64) -> u32 {
+pub fn common_bits(a: u64, b: u64) -> u32 {
     return (a ^ b).leading_zeros();
 }
 

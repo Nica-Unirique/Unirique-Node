@@ -1,0 +1,8 @@
+[package]
+name = "torrents"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+librqbit = { version = "9", default-features = false, features = ["rust-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread"] }

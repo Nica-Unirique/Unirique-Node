@@ -1,7 +1,7 @@
-use std::mem::size_of;
+﻿use std::mem::size_of;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::address::Address;
+use neighbors::Address;
 use crate::signature::{server_bytes, verify};
 
 const SEEN_WITHIN: Duration = Duration::from_secs(5 * 60);
