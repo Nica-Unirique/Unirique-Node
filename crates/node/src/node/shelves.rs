@@ -1,7 +1,7 @@
 //! Ranger les fiches sur les bonnes etageres, et y chercher.
 
 use catalog::{
-    criteria_position, game_positions, name_rank, server_criteria_position, server_positions, Criteria, Game, Server,
+    criteria_position, content_positions, name_rank, server_criteria_position, server_positions, Criteria, Content, Server,
     ServerCriteria,
 };
 use neighbors::{common_bits, Address, Neighbor};
@@ -76,18 +76,18 @@ impl Node {
         return addresses;
     }
 
-    pub(super) fn store_game(&self, game: &Game) {
-        for address in self.shelves_of(&game_positions(game)) {
-            self.ask(address, Message::SendGames { games: vec![game.clone()] });
+    pub(super) fn store_content(&self, content: &Content) {
+        for address in self.shelves_of(&content_positions(content)) {
+            self.ask(address, Message::SendContents { contents: vec![content.clone()] });
         }
     }
 
-    pub(super) fn store_games(&self) {
-        let games = self.games.lock().unwrap().get_signed();
+    pub(super) fn store_contents(&self) {
+        let contents = self.contents.lock().unwrap().get_signed();
 
-        for game in games.iter() {
-            if game.downloaded {
-                self.store_game(game);
+        for content in contents.iter() {
+            if content.downloaded {
+                self.store_content(content);
             }
         }
     }
@@ -112,22 +112,22 @@ impl Node {
     /// Des criteres sans etagere (aucun, ou seulement un morceau de nom de
     /// moins de 3 lettres) : la recherche est refusee. Un tel morceau reste
     /// utilisable comme filtre, a cote d'un tag ou d'un auteur.
-    pub(super) fn search_games_on_shelves(&self, criteria: &Criteria) -> Vec<Game> {
+    pub(super) fn search_contents_on_shelves(&self, criteria: &Criteria) -> Vec<Content> {
         let position = criteria_position(criteria);
         if position.is_none() {
             return Vec::new();
         }
 
-        let mut found = self.games.lock().unwrap().get_by_criteria(criteria);
+        let mut found = self.contents.lock().unwrap().get_by_criteria(criteria);
 
         for address in self.places_to_ask(position.unwrap()) {
-            let answer = self.ask(address, Message::GetGames { criteria: criteria.clone() });
+            let answer = self.ask(address, Message::GetContents { criteria: criteria.clone() });
 
             match answer {
-                Some(Message::SendGames { games }) => {
-                    for game in games {
-                        if game.is_signed() && criteria.matches(&game) && !contains_game(&found, &game) {
-                            found.push(game);
+                Some(Message::SendContents { contents }) => {
+                    for content in contents {
+                        if content.is_signed() && criteria.matches(&content) && !contains_content(&found, &content) {
+                            found.push(content);
                         }
                     }
                 }
@@ -137,7 +137,7 @@ impl Node {
 
         if criteria.name.is_some() {
             let fragment = criteria.name.clone().unwrap();
-            found.sort_by_key(|game| name_rank(&game.name, &fragment));
+            found.sort_by_key(|content| name_rank(&content.name, &fragment));
         }
 
         return found;
@@ -175,9 +175,9 @@ impl Node {
     }
 }
 
-fn contains_game(games: &Vec<Game>, game: &Game) -> bool {
-    for known in games.iter() {
-        if known.name == game.name && known.version == game.version && known.autor_key == game.autor_key {
+fn contains_content(contents: &Vec<Content>, content: &Content) -> bool {
+    for known in contents.iter() {
+        if known.name == content.name && known.version == content.version && known.autor_key == content.autor_key {
             return true;
         }
     }

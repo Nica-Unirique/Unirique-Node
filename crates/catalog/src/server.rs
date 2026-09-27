@@ -63,13 +63,18 @@ impl Server {
     }
 
     pub fn is_valid(&self) -> bool {
+        return self.is_fresh() && self.is_signed();
+    }
+
+    /// Signee il y a moins de 5 minutes (et pas dans le futur).
+    pub fn is_fresh(&self) -> bool {
         let now = now_seconds();
         let fresh_for = SEEN_WITHIN.as_secs();
 
-        if self.signed_at + fresh_for < now || self.signed_at > now + fresh_for {
-            return false;
-        }
+        return self.signed_at + fresh_for >= now && self.signed_at <= now + fresh_for;
+    }
 
+    pub fn is_signed(&self) -> bool {
         return verify(&self.host_key, &server_bytes(self), &self.signature);
     }
 }

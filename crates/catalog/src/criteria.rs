@@ -1,4 +1,4 @@
-use crate::game::Game;
+use crate::content::Content;
 use crate::server::Server;
 
 #[derive(Clone)]
@@ -9,21 +9,21 @@ pub struct Criteria {
 }
 
 impl Criteria {
-    pub fn matches(&self, game: &Game) -> bool {
+    pub fn matches(&self, content: &Content) -> bool {
         if self.name.is_some() {
             let name = self.name.as_ref().unwrap().to_lowercase();
-            if !game.name.to_lowercase().contains(&name) {
+            if !content.name.to_lowercase().contains(&name) {
                 return false;
             }
         }
 
         for tag in self.tags.iter() {
-            if !game.tags.contains(tag) {
+            if !content.tags.contains(tag) {
                 return false;
             }
         }
 
-        if self.autor_key.is_some() && self.autor_key.unwrap() != game.autor_key {
+        if self.autor_key.is_some() && self.autor_key.unwrap() != content.autor_key {
             return false;
         }
 

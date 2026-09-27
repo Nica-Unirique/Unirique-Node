@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 
-use catalog::Game;
+use catalog::Content;
 use neighbors::{common_bits, Address, Neighbor};
 use protocol::Message;
 
@@ -12,7 +12,7 @@ impl Node {
     pub(super) fn answer_get_holder(&self, infohash: &str) -> Message {
         let mut holders = self.holders.lock().unwrap().of(infohash);
 
-        if self.games.lock().unwrap().is_holding(infohash) {
+        if self.contents.lock().unwrap().is_holding(infohash) {
             holders.push(Address::here(self.address.port + TORRENT_PORT_SHIFT));
         }
 
@@ -95,21 +95,21 @@ impl Node {
     }
 
     pub(super) fn announce_holdings(&self) {
-        let games = self.games.lock().unwrap().get_signed();
+        let contents = self.contents.lock().unwrap().get_signed();
 
-        for game in games.iter() {
-            if game.downloaded && !game.is_exhausted() {
-                self.announce_holding(game);
+        for content in contents.iter() {
+            if content.downloaded && !content.is_exhausted() {
+                self.announce_holding(content);
             }
         }
     }
 
-    pub(super) fn announce_holding(&self, game: &Game) {
-        let (_, closest) = self.lookup(&game.infohash);
+    pub(super) fn announce_holding(&self, content: &Content) {
+        let (_, closest) = self.lookup(&content.infohash);
         let torrent_port = self.address.port + TORRENT_PORT_SHIFT;
 
         for neighbor in closest.iter().take(ANNOUNCE_TO) {
-            self.ask(neighbor.address, Message::AnnounceHolder { infohash: game.infohash.clone(), torrent_port });
+            self.ask(neighbor.address, Message::AnnounceHolder { infohash: content.infohash.clone(), torrent_port });
         }
     }
 }

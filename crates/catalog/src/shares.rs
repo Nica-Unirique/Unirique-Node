@@ -61,3 +61,7 @@ pub fn escape_csv(text: &str) -> String {
 
     return escaped;
 }
+
+pub fn write_default_share(share: Option<u32>) -> bool {
+    return fs::write(SHARE_FILE, format!("share\n{}\n", share_to_text(share))).is_ok();
+}

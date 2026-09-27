@@ -11,21 +11,21 @@
 use neighbors::common_bits;
 
 use crate::criteria::{Criteria, ServerCriteria};
-use crate::game::Game;
+use crate::content::Content;
 use crate::server::Server;
 
 const NAME: &str = "name";
 const TAG: &str = "tag";
 const SERVER_NAME: &str = "server-name";
 
-pub fn game_positions(game: &Game) -> Vec<u64> {
-    let mut positions = vec![key_position(&game.autor_key)];
+pub fn content_positions(content: &Content) -> Vec<u64> {
+    let mut positions = vec![key_position(&content.autor_key)];
 
-    for tag in game.tags.iter() {
+    for tag in content.tags.iter() {
         add(&mut positions, hash_text(TAG, &tag.to_string()));
     }
 
-    for trigram in trigrams(&game.name) {
+    for trigram in trigrams(&content.name) {
         add(&mut positions, hash_text(NAME, &trigram));
     }
 

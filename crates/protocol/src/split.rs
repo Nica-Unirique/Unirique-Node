@@ -1,9 +1,9 @@
-//! Une reponse trop grosse pour un seul message (64 Ko) part en plusieurs
+﻿//! Une reponse trop grosse pour un seul message (64 Ko) part en plusieurs
 //! morceaux, qui sont recolles a l'arrivee.
 
 use wire::MESSAGE_MAX;
 
-use crate::command::Command;
+use crate::answer::Answer;
 use crate::message::Message;
 
 impl Message {
@@ -11,9 +11,9 @@ impl Message {
         let mut pieces = Vec::new();
 
         match self {
-            Message::SendGames { games } => {
-                for part in split_list(games, |part| Message::SendGames { games: part }.to_bytes().len()) {
-                    pieces.push(Message::SendGames { games: part });
+            Message::SendContents { contents } => {
+                for part in split_list(contents, |part| Message::SendContents { contents: part }.to_bytes().len()) {
+                    pieces.push(Message::SendContents { contents: part });
                 }
             }
             Message::SendServers { servers } => {
@@ -32,9 +32,9 @@ impl Message {
 
         for piece in pieces {
             merged = match (merged, piece) {
-                (Some(Message::SendGames { games: mut all }), Message::SendGames { games }) => {
-                    all.extend(games);
-                    Some(Message::SendGames { games: all })
+                (Some(Message::SendContents { contents: mut all }), Message::SendContents { contents }) => {
+                    all.extend(contents);
+                    Some(Message::SendContents { contents: all })
                 }
                 (Some(Message::SendServers { servers: mut all }), Message::SendServers { servers }) => {
                     all.extend(servers);
@@ -49,19 +49,19 @@ impl Message {
     }
 }
 
-impl Command {
-    pub fn split(self) -> Vec<Command> {
+impl Answer {
+    pub fn split(self) -> Vec<Answer> {
         let mut pieces = Vec::new();
 
         match self {
-            Command::Games { games } => {
-                for part in split_list(games, |part| Command::Games { games: part }.to_bytes().len()) {
-                    pieces.push(Command::Games { games: part });
+            Answer::Contents { contents } => {
+                for part in split_list(contents, |part| Answer::Contents { contents: part }.to_bytes().len()) {
+                    pieces.push(Answer::Contents { contents: part });
                 }
             }
-            Command::Servers { servers } => {
-                for part in split_list(servers, |part| Command::Servers { servers: part }.to_bytes().len()) {
-                    pieces.push(Command::Servers { servers: part });
+            Answer::Servers { servers } => {
+                for part in split_list(servers, |part| Answer::Servers { servers: part }.to_bytes().len()) {
+                    pieces.push(Answer::Servers { servers: part });
                 }
             }
             other => pieces.push(other),
@@ -70,18 +70,18 @@ impl Command {
         return pieces;
     }
 
-    pub fn merge(pieces: Vec<Command>) -> Option<Command> {
-        let mut merged: Option<Command> = None;
+    pub fn merge(pieces: Vec<Answer>) -> Option<Answer> {
+        let mut merged: Option<Answer> = None;
 
         for piece in pieces {
             merged = match (merged, piece) {
-                (Some(Command::Games { games: mut all }), Command::Games { games }) => {
-                    all.extend(games);
-                    Some(Command::Games { games: all })
+                (Some(Answer::Contents { contents: mut all }), Answer::Contents { contents }) => {
+                    all.extend(contents);
+                    Some(Answer::Contents { contents: all })
                 }
-                (Some(Command::Servers { servers: mut all }), Command::Servers { servers }) => {
+                (Some(Answer::Servers { servers: mut all }), Answer::Servers { servers }) => {
                     all.extend(servers);
-                    Some(Command::Servers { servers: all })
+                    Some(Answer::Servers { servers: all })
                 }
                 (None, piece) => Some(piece),
                 (Some(first), _) => Some(first),

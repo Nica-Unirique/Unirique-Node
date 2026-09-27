@@ -2,20 +2,20 @@ use ed25519_dalek::{Signature, VerifyingKey};
 
 use wire::{put_tags, put_text, put_u32, put_u64};
 
-use crate::game::Game;
+use crate::content::Content;
 use crate::server::Server;
 
-pub fn game_bytes(game: &Game) -> Vec<u8> {
-    let mut bytes = b"unirique-game".to_vec();
+pub fn content_bytes(content: &Content) -> Vec<u8> {
+    let mut bytes = b"unirique-content".to_vec();
 
-    put_text(&mut bytes, &game.name);
-    put_u32(&mut bytes, game.version[0]);
-    put_u32(&mut bytes, game.version[1]);
-    put_u32(&mut bytes, game.version[2]);
-    bytes.extend_from_slice(&game.autor_key);
-    put_tags(&mut bytes, &game.tags);
-    put_text(&mut bytes, &game.description);
-    put_text(&mut bytes, &game.infohash);
+    put_text(&mut bytes, &content.name);
+    put_u32(&mut bytes, content.version[0]);
+    put_u32(&mut bytes, content.version[1]);
+    put_u32(&mut bytes, content.version[2]);
+    bytes.extend_from_slice(&content.autor_key);
+    put_tags(&mut bytes, &content.tags);
+    put_text(&mut bytes, &content.description);
+    put_text(&mut bytes, &content.infohash);
 
     return bytes;
 }

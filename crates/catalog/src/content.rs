@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 use wire::{key_from_hex, key_to_hex, signature_from_hex, signature_to_hex};
 
-use crate::signature::{game_bytes, verify};
+use crate::signature::{content_bytes, verify};
 
 #[derive(Clone)]
-pub struct Game {
+pub struct Content {
     pub name: String,
     pub version: [u32; 3],
     pub autor_key: [u8; 32], // clef ed25519
@@ -30,9 +30,9 @@ pub struct Game {
     pub signature: [u8; 64],
 }
 
-impl Game {
+impl Content {
     pub fn new(folder: &PathBuf) -> Option<Self> {
-        let mut game = Game {
+        let mut content = Content {
             name: String::new(),
             version: [0, 0, 0],
             autor_key: [0; 32],
@@ -69,7 +69,7 @@ impl Game {
         if name.is_none() {
             return None;
         }
-        game.name = name.unwrap();
+        content.name = name.unwrap();
 
         let version = json["version"].as_array().map(|arr| {
             [
@@ -80,7 +80,7 @@ impl Game {
         if version.is_none() {
             return None;
         }
-        game.version = version.unwrap();
+        content.version = version.unwrap();
 
         let autor = json["autor_key"].as_str();
         if autor.is_none() {
@@ -91,54 +91,54 @@ impl Game {
         if autor_key.is_none() {
             return None;
         }
-        game.autor_key = autor_key.unwrap();
+        content.autor_key = autor_key.unwrap();
 
         let tags = json["tags"].as_array().map(|arr| {
             arr.iter().filter_map(|v| v.as_u64()).collect::<Vec<u64>>()});
         if tags.is_none() {
             return None;
         }
-        game.tags = tags.unwrap();
+        content.tags = tags.unwrap();
 
         let description = json["description"].as_str().map(String::from);
         if description.is_none() {
             return None;
         }
 
-        game.description = description.unwrap();
+        content.description = description.unwrap();
 
         let signature = json["signature"].as_str();
         if signature.is_some() {
             let read = signature_from_hex(signature.unwrap());
             if read.is_some() {
-                game.signature = read.unwrap();
+                content.signature = read.unwrap();
             }
         }
 
-        game.compute_ram_weight();
+        content.compute_ram_weight();
 
-        // Sans game.torrent, l'infohash reste vide : le node fabriquera le
-        // torrent (crate `torrents`), puis appellera `Games::set_infohash`.
+        // Sans content.torrent, l'infohash reste vide : le node fabriquera le
+        // torrent (crate `torrents`), puis appellera `Contents::set_infohash`.
         let infohash = json["infohash"].as_str();
-        if infohash.is_some() && folder.join("game.torrent").is_file() {
-            game.infohash = infohash.unwrap().to_string();
+        if infohash.is_some() && folder.join("content.torrent").is_file() {
+            content.infohash = infohash.unwrap().to_string();
         }
 
-        let content = folder.join("content");
-        game.downloaded = content.is_dir();
-        game.disk_weight = folder_size(&content);
+        let files = folder.join("content");
+        content.downloaded = files.is_dir();
+        content.disk_weight = folder_size(&files);
 
         let mut downloadable = false;
-        if game.downloaded {
+        if content.downloaded {
             downloadable = json["downloadable"].as_bool().unwrap_or(false);
         }
-        game.downloadable = downloadable;
+        content.downloadable = downloadable;
 
-        Some(game)
+        Some(content)
     }
 
     pub fn compute_ram_weight(&mut self) {
-        let weight = size_of::<Game>()
+        let weight = size_of::<Content>()
             + self.name.capacity()
             + self.tags.capacity() * size_of::<u64>()
             + self.description.capacity();
@@ -184,7 +184,7 @@ impl Game {
     }
 
     pub fn is_signed(&self) -> bool {
-        return verify(&self.autor_key, &game_bytes(self), &self.signature);
+        return verify(&self.autor_key, &content_bytes(self), &self.signature);
     }
 
     pub fn is_exhausted(&self) -> bool {

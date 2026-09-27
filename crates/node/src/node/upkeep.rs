@@ -18,7 +18,7 @@ impl Node {
         loop {
             if tour % ANNOUNCE_EVERY == 0 {
                 self.announce_holdings();
-                self.store_games();
+                self.store_contents();
             }
             tour += 1;
 
@@ -96,15 +96,15 @@ impl Node {
 
     fn adjust_depth(&self) {
         let servers_weight = self.servers.lock().unwrap().ram_weight;
-        let games = self.games.lock().unwrap();
-        let weight = servers_weight + games.ram_weight;
-        drop(games);
+        let contents = self.contents.lock().unwrap();
+        let weight = servers_weight + contents.ram_weight;
+        drop(contents);
 
         let depth = self.depth.load(Ordering::Relaxed);
 
         if weight >= WEIGHT_HIGH && depth < DEPTH_MAX {
             self.depth.store(depth + 1, Ordering::Relaxed);
-            self.games.lock().unwrap().forget_outside(self.id, depth + 1);
+            self.contents.lock().unwrap().forget_outside(self.id, depth + 1);
             self.servers.lock().unwrap().forget_outside(self.id, depth + 1);
         }
 

@@ -3,7 +3,7 @@
 use neighbors::Address;
 
 const KEPT_FOR: Duration = Duration::from_secs(30 * 60);
-const PER_GAME_MAX: usize = 20;
+const PER_CONTENT_MAX: usize = 20;
 const RECORDS_MAX: usize = 10_000;
 
 struct Record {
@@ -22,7 +22,7 @@ impl Holders {
     }
 
     pub fn add(&mut self, infohash: &str, address: Address) {
-        let mut same_game = 0;
+        let mut same_content = 0;
 
         for record in self.records.iter_mut() {
             if record.infohash != infohash {
@@ -34,10 +34,10 @@ impl Holders {
                 return;
             }
 
-            same_game += 1;
+            same_content += 1;
         }
 
-        if same_game >= PER_GAME_MAX || self.records.len() >= RECORDS_MAX {
+        if same_content >= PER_CONTENT_MAX || self.records.len() >= RECORDS_MAX {
             return;
         }
 

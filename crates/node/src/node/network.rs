@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use catalog::{game_positions, on_shelf, server_positions, Criteria, Game, Server};
+use catalog::{content_positions, on_shelf, server_positions, Criteria, Content, Server};
 use neighbors::{Address, Neighbor};
 use protocol::Message;
 use wire::{read_frame, write_frame};
@@ -72,9 +72,9 @@ impl Node {
         match message {
             Message::Ping { port, id, depth } => return Some(self.answer_ping(*port, *id, *depth, from)),
             Message::GetNeighbors { target } => return Some(self.answer_get_neighbors(*target)),
-            Message::GetGames { criteria } => return Some(self.answer_get_games(criteria)),
-            Message::SendGames { games } => {
-                self.receive_games(games);
+            Message::GetContents { criteria } => return Some(self.answer_get_contents(criteria)),
+            Message::SendContents { contents } => {
+                self.receive_contents(contents);
                 return None;
             }
             Message::Pong { .. } => return None,
@@ -117,19 +117,19 @@ impl Node {
         return Message::SendNeighbors { neighbors };
     }
 
-    fn answer_get_games(&self, criteria: &Criteria) -> Message {
-        let games = self.games.lock().unwrap().get_by_criteria(criteria);
+    fn answer_get_contents(&self, criteria: &Criteria) -> Message {
+        let contents = self.contents.lock().unwrap().get_by_criteria(criteria);
 
-        return Message::SendGames { games };
+        return Message::SendContents { contents };
     }
 
-    pub(super) fn receive_games(&self, games: &Vec<Game>) {
+    pub(super) fn receive_contents(&self, contents: &Vec<Content>) {
         let depth = self.depth.load(Ordering::Relaxed);
-        let mut my_games = self.games.lock().unwrap();
+        let mut my_contents = self.contents.lock().unwrap();
 
-        for game in games.iter() {
-            if on_shelf(&game_positions(game), self.id, depth) {
-                my_games.add_received(game.clone());
+        for content in contents.iter() {
+            if on_shelf(&content_positions(content), self.id, depth) {
+                my_contents.add_received(content.clone());
             }
         }
     }

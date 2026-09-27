@@ -170,6 +170,10 @@ impl Neighbors {
         return addresses;
     }
 
+    pub fn count(&self) -> usize {
+        return self.near.len() + self.far.len();
+    }
+
     pub fn is_empty(&self) -> bool {
         return self.near.is_empty() && self.far.is_empty();
     }

@@ -38,7 +38,7 @@ impl Torrents {
         return Some(Torrents { runtime, session: session.unwrap() });
     }
 
-    /// Fabrique `game.torrent` a partir de `content/`, et rend l'infohash.
+    /// Fabrique `content.torrent` a partir de `content/`, et rend l'infohash.
     pub fn make(&self, folder: &PathBuf) -> Option<String> {
         let content = folder.join("content");
         let torrent = self.runtime.block_on(async {
@@ -58,8 +58,8 @@ impl Torrents {
             return None;
         }
 
-        if fs::write(folder.join("game.torrent"), bytes.unwrap()).is_err() {
-            eprintln!("Failed to write game.torrent");
+        if fs::write(folder.join("content.torrent"), bytes.unwrap()).is_err() {
+            eprintln!("Failed to write content.torrent");
             return None;
         }
 
@@ -67,7 +67,7 @@ impl Torrents {
     }
 
     pub fn seed(&self, folder: &PathBuf) -> bool {
-        let torrent = fs::read(folder.join("game.torrent"));
+        let torrent = fs::read(folder.join("content.torrent"));
         if torrent.is_err() {
             return false;
         }
@@ -135,6 +135,29 @@ impl Torrents {
         let _ = self.runtime.block_on(self.session.unpause(&torrent.unwrap()));
 
         return true;
+    }
+
+    /// Ce qui est deja telecharge, et la taille totale.
+    pub fn progress(&self, infohash: &str) -> Option<(u64, u64)> {
+        let torrent = self.find(infohash);
+        if torrent.is_none() {
+            return None;
+        }
+
+        let stats = torrent.unwrap().stats();
+
+        return Some((stats.progress_bytes, stats.total_bytes));
+    }
+
+    /// Retire un torrent de la session (les fichiers sont laisses : c'est au
+    /// node de supprimer le dossier).
+    pub fn remove(&self, infohash: &str) {
+        let id = Id20::from_str(infohash);
+        if id.is_err() {
+            return;
+        }
+
+        let _ = self.runtime.block_on(self.session.delete(TorrentIdOrHash::Hash(id.unwrap()), false));
     }
 
     fn find(&self, infohash: &str) -> Option<Arc<ManagedTorrent>> {

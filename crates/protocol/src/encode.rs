@@ -1,11 +1,11 @@
-use std::path::PathBuf;
+﻿use std::path::PathBuf;
 
-use catalog::{Criteria, Game, Server, ServerCriteria};
+use catalog::{Criteria, Content, Server, ServerCriteria};
 use neighbors::{Address, Neighbor};
 use wire::{
     put_optional_key, put_optional_text, put_tags, put_text, put_u16, put_u32, put_u64, take_key,
     take_optional_key, take_optional_text, take_optional_version, take_signature, take_tags, take_text,
-    take_u16, take_u64, take_u8, take_version,
+    take_u16, take_u32, take_u64, take_u8, take_version,
 };
 
 // ---------- Voisins ----------
@@ -35,26 +35,26 @@ pub fn take_neighbor(bytes: &[u8], at: &mut usize) -> Option<Neighbor> {
 
 // ---------- Jeux ----------
 
-pub fn put_game(bytes: &mut Vec<u8>, game: &Game) {
-    put_text(bytes, &game.name);
+pub fn put_content(bytes: &mut Vec<u8>, content: &Content) {
+    put_text(bytes, &content.name);
 
-    put_u32(bytes, game.version[0]);
-    put_u32(bytes, game.version[1]);
-    put_u32(bytes, game.version[2]);
+    put_u32(bytes, content.version[0]);
+    put_u32(bytes, content.version[1]);
+    put_u32(bytes, content.version[2]);
 
-    bytes.extend_from_slice(&game.autor_key);
+    bytes.extend_from_slice(&content.autor_key);
 
-    put_tags(bytes, &game.tags);
+    put_tags(bytes, &content.tags);
 
-    put_text(bytes, &game.description);
-    put_u64(bytes, game.disk_weight);
-    put_text(bytes, &game.infohash);
+    put_text(bytes, &content.description);
+    put_u64(bytes, content.disk_weight);
+    put_text(bytes, &content.infohash);
 
-    bytes.push(game.downloadable as u8);
-    bytes.extend_from_slice(&game.signature);
+    bytes.push(content.downloadable as u8);
+    bytes.extend_from_slice(&content.signature);
 }
 
-pub fn take_game(bytes: &[u8], at: &mut usize) -> Option<Game> {
+pub fn take_content(bytes: &[u8], at: &mut usize) -> Option<Content> {
     let name = take_text(bytes, at);
     let version = take_version(bytes, at);
     let autor_key = take_key(bytes, at);
@@ -73,7 +73,7 @@ pub fn take_game(bytes: &[u8], at: &mut usize) -> Option<Game> {
         return None;
     }
 
-    let mut game = Game {
+    let mut content = Content {
         name: name.unwrap(),
         version: version.unwrap(),
         autor_key: autor_key.unwrap(),
@@ -91,37 +91,37 @@ pub fn take_game(bytes: &[u8], at: &mut usize) -> Option<Game> {
         signature: signature.unwrap(),
     };
 
-    game.compute_ram_weight();
+    content.compute_ram_weight();
 
-    return Some(game);
+    return Some(content);
 }
 
-pub fn put_games(bytes: &mut Vec<u8>, games: &Vec<Game>) {
-    put_u16(bytes, games.len() as u16);
+pub fn put_contents(bytes: &mut Vec<u8>, contents: &Vec<Content>) {
+    put_u16(bytes, contents.len() as u16);
 
-    for game in games.iter() {
-        put_game(bytes, game);
+    for content in contents.iter() {
+        put_content(bytes, content);
     }
 }
 
-pub fn take_games(bytes: &[u8], at: &mut usize) -> Option<Vec<Game>> {
+pub fn take_contents(bytes: &[u8], at: &mut usize) -> Option<Vec<Content>> {
     let count = take_u16(bytes, at);
     if count.is_none() {
         return None;
     }
 
-    let mut games = Vec::new();
+    let mut contents = Vec::new();
 
     for _ in 0..count.unwrap() {
-        let game = take_game(bytes, at);
-        if game.is_none() {
+        let content = take_content(bytes, at);
+        if content.is_none() {
             return None;
         }
 
-        games.push(game.unwrap());
+        contents.push(content.unwrap());
     }
 
-    return Some(games);
+    return Some(contents);
 }
 
 pub fn put_criteria(bytes: &mut Vec<u8>, criteria: &Criteria) {
@@ -264,4 +264,35 @@ pub fn take_server_criteria(bytes: &[u8], at: &mut usize) -> Option<ServerCriter
         game_autor_key: game_autor_key.unwrap(),
         host_key: host_key.unwrap(),
     });
+}
+
+// ---------- Quota de partage ----------
+
+/// `None` veut dire « a l'infini ».
+pub fn put_share(bytes: &mut Vec<u8>, share: Option<u32>) {
+    if share.is_none() {
+        bytes.push(0);
+        return;
+    }
+
+    bytes.push(1);
+    put_u32(bytes, share.unwrap());
+}
+
+pub fn take_share(bytes: &[u8], at: &mut usize) -> Option<Option<u32>> {
+    let present = take_u8(bytes, at);
+    if present.is_none() {
+        return None;
+    }
+
+    if present.unwrap() == 0 {
+        return Some(None);
+    }
+
+    let share = take_u32(bytes, at);
+    if share.is_none() {
+        return None;
+    }
+
+    return Some(Some(share.unwrap()));
 }

@@ -1,9 +1,9 @@
-use catalog::{Criteria, Game, Server, ServerCriteria};
+use catalog::{Criteria, Content, Server, ServerCriteria};
 use neighbors::{Address, Neighbor};
 use wire::{put_text, put_u16, put_u64, take_text, take_u16, take_u64, take_u8};
 
 use crate::encode::{
-    put_criteria, put_games, put_neighbor, put_server, put_server_criteria, put_servers, take_criteria, take_games,
+    put_criteria, put_contents, put_neighbor, put_server, put_server_criteria, put_servers, take_criteria, take_contents,
     take_neighbor, take_server, take_server_criteria, take_servers,
 };
 
@@ -11,8 +11,8 @@ const PING: u8 = 1;
 const PONG: u8 = 2;
 const GET_NEIGHBORS: u8 = 3;
 const SEND_NEIGHBORS: u8 = 4;
-const GET_GAMES: u8 = 5;
-const SEND_GAMES: u8 = 6;
+const GET_CONTENTS: u8 = 5;
+const SEND_CONTENTS: u8 = 6;
 const GET_HOLDER: u8 = 7;
 const SEND_HOLDERS: u8 = 8;
 const ANNOUNCE_SERVER: u8 = 9;
@@ -26,8 +26,8 @@ pub enum Message {
     Pong { port: u16, id: u64, depth: u8 },
     GetNeighbors { target: u64 },
     SendNeighbors { neighbors: Vec<Neighbor> },
-    GetGames { criteria: Criteria },
-    SendGames { games: Vec<Game> },
+    GetContents { criteria: Criteria },
+    SendContents { contents: Vec<Content> },
     GetHolder { infohash: String },
     SendHolders { holders: Vec<Address>, neighbors: Vec<Neighbor> },
     AnnounceHolder { infohash: String, torrent_port: u16 },
@@ -43,8 +43,8 @@ impl Message {
             Message::Pong { port, id, depth } => return write_hello(PONG, *port, *id, *depth),
             Message::GetNeighbors { target } => return write_get_neighbors(*target),
             Message::SendNeighbors { neighbors } => return write_send_neighbors(neighbors),
-            Message::GetGames { criteria } => return write_get_games(criteria),
-            Message::SendGames { games } => return write_send_games(games),
+            Message::GetContents { criteria } => return write_get_contents(criteria),
+            Message::SendContents { contents } => return write_send_contents(contents),
             Message::GetHolder { infohash } => return write_get_holder(infohash),
             Message::SendHolders { holders, neighbors } => return write_send_holders(holders, neighbors),
             Message::AnnounceHolder { infohash, torrent_port } => return write_announce_holder(infohash, *torrent_port),
@@ -66,8 +66,8 @@ impl Message {
             PONG => return read_pong(rest),
             GET_NEIGHBORS => return read_get_neighbors(rest),
             SEND_NEIGHBORS => return read_send_neighbors(rest),
-            GET_GAMES => return read_get_games(rest),
-            SEND_GAMES => return read_send_games(rest),
+            GET_CONTENTS => return read_get_contents(rest),
+            SEND_CONTENTS => return read_send_contents(rest),
             GET_HOLDER => return read_get_holder(rest),
             SEND_HOLDERS => return read_send_holders(rest),
             ANNOUNCE_HOLDER => return read_announce_holder(rest),
@@ -108,16 +108,16 @@ fn write_send_neighbors(neighbors: &Vec<Neighbor>) -> Vec<u8> {
     return bytes;
 }
 
-fn write_get_games(criteria: &Criteria) -> Vec<u8> {
-    let mut bytes = vec![GET_GAMES];
+fn write_get_contents(criteria: &Criteria) -> Vec<u8> {
+    let mut bytes = vec![GET_CONTENTS];
     put_criteria(&mut bytes, criteria);
 
     return bytes;
 }
 
-fn write_send_games(games: &Vec<Game>) -> Vec<u8> {
-    let mut bytes = vec![SEND_GAMES];
-    put_games(&mut bytes, games);
+fn write_send_contents(contents: &Vec<Content>) -> Vec<u8> {
+    let mut bytes = vec![SEND_CONTENTS];
+    put_contents(&mut bytes, contents);
 
     return bytes;
 }
@@ -245,7 +245,7 @@ fn read_send_neighbors(bytes: &[u8]) -> Option<Message> {
     return Some(Message::SendNeighbors { neighbors });
 }
 
-fn read_get_games(bytes: &[u8]) -> Option<Message> {
+fn read_get_contents(bytes: &[u8]) -> Option<Message> {
     let mut at = 0;
 
     let criteria = take_criteria(bytes, &mut at);
@@ -253,18 +253,18 @@ fn read_get_games(bytes: &[u8]) -> Option<Message> {
         return None;
     }
 
-    return Some(Message::GetGames { criteria: criteria.unwrap() });
+    return Some(Message::GetContents { criteria: criteria.unwrap() });
 }
 
-fn read_send_games(bytes: &[u8]) -> Option<Message> {
+fn read_send_contents(bytes: &[u8]) -> Option<Message> {
     let mut at = 0;
 
-    let games = take_games(bytes, &mut at);
-    if games.is_none() {
+    let contents = take_contents(bytes, &mut at);
+    if contents.is_none() {
         return None;
     }
 
-    return Some(Message::SendGames { games: games.unwrap() });
+    return Some(Message::SendContents { contents: contents.unwrap() });
 }
 
 fn read_get_holder(bytes: &[u8]) -> Option<Message> {

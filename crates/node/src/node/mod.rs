@@ -13,16 +13,18 @@ mod share;
 mod shelves;
 mod upkeep;
 
+use std::collections::HashMap;
 use std::net::TcpListener;
 use std::sync::atomic::AtomicU8;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use catalog::{Games, Holders, Servers, GAMES_FOLDER};
+use catalog::{Contents, Holders, Servers, CONTENTS_FOLDER};
 use neighbors::{Address, Neighbors};
 use torrents::Torrents;
 
 use crate::settings::Settings;
+use share::Download;
 
 const MAIN_NODE: &str = "127.0.0.1:8735";
 const ENTER_TRIES: u32 = 10;
@@ -53,16 +55,17 @@ pub struct Node {
     address: Address,
 
     neighbors: Mutex<Neighbors>,
-    games: Mutex<Games>,
+    contents: Mutex<Contents>,
     servers: Mutex<Servers>,
     holders: Mutex<Holders>,
+    downloads: Mutex<HashMap<String, Download>>,
 
     torrents: Torrents,
 }
 
 impl Node {
     pub fn new(settings: Settings) -> Option<Node> {
-        let torrents = Torrents::new(GAMES_FOLDER, settings.address.port + TORRENT_PORT_SHIFT);
+        let torrents = Torrents::new(CONTENTS_FOLDER, settings.address.port + TORRENT_PORT_SHIFT);
         if torrents.is_none() {
             return None;
         }
@@ -73,9 +76,10 @@ impl Node {
             id: settings.id,
             depth: AtomicU8::new(0),
             neighbors: Mutex::new(Neighbors::new()),
-            games: Mutex::new(Games::new()),
+            contents: Mutex::new(Contents::new()),
             servers: Mutex::new(Servers::new()),
             holders: Mutex::new(Holders::new()),
+            downloads: Mutex::new(HashMap::new()),
             torrents: torrents.unwrap(),
         });
     }
@@ -94,7 +98,7 @@ impl Node {
         }
 
         self.complete_torrents();
-        self.seed_games();
+        self.seed_contents();
         self.listen(listener.unwrap());
         self.listen_local(local.unwrap());
         self.upkeep();
