@@ -20,6 +20,7 @@ const CHALLENGE: u8 = 11;
 const SIGNED: u8 = 12;
 const STOP: u8 = 13;
 const STATUS: u8 = 14;
+const COVER: u8 = 15;
 
 pub enum Subject {
     Content { infohash: String },
@@ -43,6 +44,7 @@ pub enum Command {
     Signed { what: Subject, signature: [u8; 64] },
     Stop,
     Status,
+    Cover { content: Content },
 }
 
 impl Command {
@@ -96,6 +98,10 @@ impl Command {
             }
             Command::Stop => bytes.push(STOP),
             Command::Status => bytes.push(STATUS),
+            Command::Cover { content } => {
+                bytes.push(COVER);
+                put_content(&mut bytes, content);
+            }
         }
 
         return bytes;
@@ -186,6 +192,13 @@ impl Command {
             }
             STOP => return Some(Command::Stop),
             STATUS => return Some(Command::Status),
+            COVER => {
+                let content = take_content(rest, &mut at);
+                if content.is_none() {
+                    return None;
+                }
+                return Some(Command::Cover { content: content.unwrap() });
+            }
             _ => return None,
         }
     }

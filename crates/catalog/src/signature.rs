@@ -16,6 +16,7 @@ pub fn content_bytes(content: &Content) -> Vec<u8> {
     put_tags(&mut bytes, &content.tags);
     put_text(&mut bytes, &content.description);
     put_text(&mut bytes, &content.infohash);
+    put_text(&mut bytes, &content.cover);
 
     return bytes;
 }

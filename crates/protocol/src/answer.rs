@@ -1,5 +1,5 @@
 use catalog::{Content, Server};
-use wire::{put_u16, put_u32, put_u64, take_u16, take_u32, take_u64, take_u8};
+use wire::{put_text, put_u16, put_u32, put_u64, take_text, take_u16, take_u32, take_u64, take_u8};
 
 use crate::encode::{put_contents, put_servers, put_share, take_contents, take_servers, take_share};
 
@@ -11,6 +11,7 @@ const TO_SIGN: u8 = 5;
 const PROGRESS: u8 = 6;
 const SHARE: u8 = 7;
 const STATUS: u8 = 8;
+const COVER_FILE: u8 = 9;
 
 /// Pourquoi une commande a echoue. La liste est fixe : le client peut
 /// afficher un message clair pour chaque raison.
@@ -56,6 +57,8 @@ pub enum Answer {
     Progress { done_bytes: u64, total_bytes: u64 },
     Share { share: Option<u32> },
     Status { neighbors: u32, contents_known: u32, servers_known: u32, depth: u8, port: u16 },
+    /// Le chemin complet de la jaquette sur le disque.
+    CoverFile { path: String },
 }
 
 impl Answer {
@@ -97,6 +100,10 @@ impl Answer {
                 put_u32(&mut bytes, *servers_known);
                 bytes.push(*depth);
                 put_u16(&mut bytes, *port);
+            }
+            Answer::CoverFile { path } => {
+                bytes.push(COVER_FILE);
+                put_text(&mut bytes, path);
             }
         }
 
@@ -183,6 +190,13 @@ impl Answer {
                     depth: depth.unwrap(),
                     port: port.unwrap(),
                 });
+            }
+            COVER_FILE => {
+                let path = take_text(rest, &mut at);
+                if path.is_none() {
+                    return None;
+                }
+                return Some(Answer::CoverFile { path: path.unwrap() });
             }
             _ => return None,
         }

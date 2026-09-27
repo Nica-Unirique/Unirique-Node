@@ -78,6 +78,7 @@ impl Node {
             Command::Signed { what, signature } => return self.signed(what, signature),
             Command::Stop => return Answer::Done,
             Command::Status => return self.status(),
+            Command::Cover { content } => return self.cover(&content),
         }
     }
 

@@ -13,6 +13,8 @@ pub struct Content {
     pub autor_key: [u8; 32], // clef ed25519
     pub tags: Vec<u64>,
     pub description: String,
+    /// Le chemin de la jaquette dans `content/`, ou rien.
+    pub cover: String,
 
     pub ram_weight: u64,
 
@@ -38,6 +40,7 @@ impl Content {
             autor_key: [0; 32],
             tags: Vec::new(),
             description: String::new(),
+            cover: String::new(),
             ram_weight: 0,
             downloaded: false,
             downloadable: false,
@@ -107,6 +110,11 @@ impl Content {
 
         content.description = description.unwrap();
 
+        let cover = json["cover"].as_str();
+        if cover.is_some() {
+            content.cover = cover.unwrap().to_string();
+        }
+
         let signature = json["signature"].as_str();
         if signature.is_some() {
             let read = signature_from_hex(signature.unwrap());
@@ -141,7 +149,8 @@ impl Content {
         let weight = size_of::<Content>()
             + self.name.capacity()
             + self.tags.capacity() * size_of::<u64>()
-            + self.description.capacity();
+            + self.description.capacity()
+            + self.cover.capacity();
 
         self.ram_weight = weight as u64;
     }
@@ -171,6 +180,7 @@ impl Content {
             "autor_key": key_to_hex(&self.autor_key),
             "tags": self.tags,
             "description": self.description,
+            "cover": self.cover,
             "infohash": self.infohash,
             "signature": signature_to_hex(&self.signature),
         });
@@ -181,6 +191,26 @@ impl Content {
         }
 
         return fs::write(folder.join("manifest.json"), text.unwrap()).is_ok();
+    }
+
+    /// Une jaquette annoncee, dont le chemin reste dans `content/` : pas de
+    /// `..`, pas de chemin absolu, pas de lettre de lecteur.
+    pub fn cover_is_safe(&self) -> bool {
+        if self.cover.is_empty() || self.cover.starts_with('/') || self.cover.starts_with('\\') {
+            return false;
+        }
+
+        if self.cover.contains(':') || self.cover.contains('\\') {
+            return false;
+        }
+
+        for part in self.cover.split('/') {
+            if part.is_empty() || part == "." || part == ".." {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     pub fn is_signed(&self) -> bool {

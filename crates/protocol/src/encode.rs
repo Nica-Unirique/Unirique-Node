@@ -49,6 +49,7 @@ pub fn put_content(bytes: &mut Vec<u8>, content: &Content) {
     put_text(bytes, &content.description);
     put_u64(bytes, content.disk_weight);
     put_text(bytes, &content.infohash);
+    put_text(bytes, &content.cover);
 
     bytes.push(content.downloadable as u8);
     bytes.extend_from_slice(&content.signature);
@@ -62,6 +63,7 @@ pub fn take_content(bytes: &[u8], at: &mut usize) -> Option<Content> {
     let description = take_text(bytes, at);
     let disk_weight = take_u64(bytes, at);
     let infohash = take_text(bytes, at);
+    let cover = take_text(bytes, at);
     let downloadable = take_u8(bytes, at);
     let signature = take_signature(bytes, at);
 
@@ -69,7 +71,7 @@ pub fn take_content(bytes: &[u8], at: &mut usize) -> Option<Content> {
         return None;
     }
 
-    if description.is_none() || disk_weight.is_none() || downloadable.is_none() || infohash.is_none() || signature.is_none() {
+    if description.is_none() || disk_weight.is_none() || downloadable.is_none() || infohash.is_none() || cover.is_none() || signature.is_none() {
         return None;
     }
 
@@ -84,6 +86,7 @@ pub fn take_content(bytes: &[u8], at: &mut usize) -> Option<Content> {
         downloadable: downloadable.unwrap() == 1,
         disk_weight: disk_weight.unwrap(),
         infohash: infohash.unwrap(),
+        cover: cover.unwrap(),
         share: None,
         folder: PathBuf::new(),
         sent: 0,

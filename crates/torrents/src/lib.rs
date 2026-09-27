@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use librqbit::api::TorrentIdOrHash;
 use librqbit::dht::Id20;
@@ -105,6 +106,39 @@ impl Torrents {
         });
     }
 
+    /// Telecharge UN fichier d'un torrent dans `folder`, par exemple une
+    /// jaquette, puis retire le torrent de la session : il ne doit ni gener
+    /// un telechargement complet plus tard, ni partager un contenu incomplet.
+    pub fn fetch_file(&self, infohash: &str, folder: &PathBuf, holders: Vec<SocketAddr>, file: &str, within: Duration) -> bool {
+        let mut options = AddTorrentOptions::default();
+        options.output_folder = Some(folder.to_string_lossy().to_string());
+        options.disable_trackers = true;
+        options.initial_peers = Some(holders);
+        options.only_files_regex = Some(format!("^{}$", regex_escaped(file)));
+
+        let magnet = format!("magnet:?xt=urn:btih:{}", infohash);
+
+        let done = self.runtime.block_on(async {
+            let added = self.session.add_torrent(AddTorrent::from_url(magnet), Some(options)).await;
+            if added.is_err() {
+                return false;
+            }
+
+            let handle = added.unwrap().into_handle();
+            if handle.is_none() {
+                return false;
+            }
+
+            let finished = tokio::time::timeout(within, handle.unwrap().wait_until_completed()).await;
+
+            return finished.is_ok() && finished.unwrap().is_ok();
+        });
+
+        self.remove(infohash);
+
+        return done;
+    }
+
     /// Ce que ce torrent a envoye depuis le demarrage de la session.
     pub fn uploaded(&self, infohash: &str) -> Option<u64> {
         let torrent = self.find(infohash);
@@ -182,4 +216,17 @@ fn session_options(port: u16) -> SessionOptions {
     options.listen = Some(listen);
 
     return options;
+}
+
+fn regex_escaped(text: &str) -> String {
+    let mut escaped = String::new();
+
+    for letter in text.chars() {
+        if ".+*?()[]{}|^$\\".contains(letter) {
+            escaped.push('\\');
+        }
+        escaped.push(letter);
+    }
+
+    return escaped;
 }

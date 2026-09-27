@@ -9,7 +9,7 @@ use catalog::{write_infohash, Content, CONTENTS_FOLDER};
 use protocol::{Answer, Reason};
 
 use super::local::failed;
-use super::Node;
+use super::{Node, COVERS_FOLDER, COVER_WITHIN};
 
 /// Ou en est un telechargement lance par `Download`.
 #[derive(Clone, Copy)]
@@ -101,6 +101,9 @@ impl Node {
 
         self.downloads.lock().unwrap().insert(content.infohash.clone(), Download::Fetching);
 
+        // Une jaquette en cours de telechargement tient peut-etre ce torrent.
+        self.torrents.remove(&content.infohash);
+
         let folder = PathBuf::from(CONTENTS_FOLDER).join(content.folder_name());
         if !self.torrents.fetch(&content.infohash, &folder, holders) {
             eprintln!("Failed to download {}", content.name);
@@ -120,6 +123,43 @@ impl Node {
         self.complete_torrents();
 
         return Ok(());
+    }
+
+    /// La jaquette d'un contenu : celle du contenu installe, ou celle deja
+    /// telechargee, ou sinon elle seule, depuis les sources du contenu.
+    pub(super) fn cover(&self, content: &Content) -> Answer {
+        if !content.is_signed() {
+            return failed(Reason::BadSignature);
+        }
+
+        if !content.cover_is_safe() {
+            return failed(Reason::Refused);
+        }
+
+        let installed = self.contents.lock().unwrap().find(&content.infohash);
+        if installed.is_some() {
+            let path = installed.unwrap().folder.join("content").join(&content.cover);
+            if path.is_file() {
+                return cover_file(&path);
+            }
+        }
+
+        let folder = PathBuf::from(COVERS_FOLDER).join(&content.infohash);
+        let path = folder.join(&content.cover);
+        if path.is_file() {
+            return cover_file(&path);
+        }
+
+        let holders = self.find_holders(&content.infohash);
+        if holders.is_empty() {
+            return failed(Reason::NoSource);
+        }
+
+        if !self.torrents.fetch_file(&content.infohash, &folder, holders, &content.cover, COVER_WITHIN) || !path.is_file() {
+            return failed(Reason::NoSource);
+        }
+
+        return cover_file(&path);
     }
 
     pub(super) fn progress(&self, infohash: &str) -> Answer {
@@ -233,4 +273,13 @@ impl Node {
             self.torrents.pause(infohash);
         }
     }
+}
+
+fn cover_file(path: &PathBuf) -> Answer {
+    let full = fs::canonicalize(path);
+    if full.is_err() {
+        return failed(Reason::NoSource);
+    }
+
+    return Answer::CoverFile { path: full.unwrap().to_string_lossy().to_string() };
 }

@@ -47,6 +47,8 @@ const HOLDERS_WANTED: usize = 8;
 const ANNOUNCE_TO: usize = 8;
 const ANNOUNCE_EVERY: u32 = 60;
 const SHELF_COPIES: usize = 4;
+const COVERS_FOLDER: &str = "Covers";
+const COVER_WITHIN: Duration = Duration::from_secs(60);
 
 pub struct Node {
     ismain: bool,
