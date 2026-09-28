@@ -1,4 +1,4 @@
-﻿//! Le node : il relie les autres crates entre eux.
+//! Le node : il relie les autres crates entre eux.
 //!
 //! - `network.rs` : la porte reseau, ce que les autres nodes nous demandent ;
 //! - `local.rs`   : la porte locale, ce que le client du joueur nous demande ;
@@ -9,6 +9,7 @@
 mod local;
 mod lookup;
 mod network;
+mod proxy;
 mod share;
 mod shelves;
 mod upkeep;
@@ -28,6 +29,9 @@ use share::Download;
 
 const MAIN_NODE: &str = "127.0.0.1:8735";
 const ENTER_TRIES: u32 = 10;
+/// En mode passif, un voisin qui ne nous a pas contactes depuis ce temps est
+/// oublie : on ne peut pas l'appeler pour savoir s'il vit.
+const SILENT_MAX: Duration = Duration::from_secs(10 * 60);
 
 const UPKEEP_DELAY: Duration = Duration::from_secs(10);
 const ANSWER_WITHIN: Duration = Duration::from_secs(5);
@@ -55,6 +59,12 @@ pub struct Node {
     id: u64,
     depth: AtomicU8,
     address: Address,
+    passive: bool,
+    proxy_protocol: bool,
+    /// Le port que les autres joignent : celui du tunnel s'il y en a un.
+    public_port: u16,
+    /// Le port torrent que les autres joignent.
+    public_torrent_port: u16,
 
     neighbors: Mutex<Neighbors>,
     contents: Mutex<Contents>,
@@ -67,14 +77,22 @@ pub struct Node {
 
 impl Node {
     pub fn new(settings: Settings) -> Option<Node> {
-        let torrents = Torrents::new(CONTENTS_FOLDER, settings.address.port + TORRENT_PORT_SHIFT);
+        let torrent_port = settings.address.port + TORRENT_PORT_SHIFT;
+        let torrents = Torrents::new(CONTENTS_FOLDER, torrent_port, settings.passive);
         if torrents.is_none() {
             return None;
         }
 
+        let public_port = settings.public_port.unwrap_or(settings.address.port);
+        let public_torrent_port = settings.public_torrent_port.unwrap_or(torrent_port);
+
         return Some(Node {
             ismain: settings.ismain,
             address: settings.address,
+            passive: settings.passive,
+            proxy_protocol: settings.proxy_protocol,
+            public_port,
+            public_torrent_port,
             id: settings.id,
             depth: AtomicU8::new(0),
             neighbors: Mutex::new(Neighbors::new()),

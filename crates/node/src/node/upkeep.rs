@@ -1,15 +1,21 @@
+use std::net::ToSocketAddrs;
 use std::sync::atomic::Ordering;
 use std::thread;
 
 use neighbors::{Address, Neighbor};
 use protocol::Message;
 
-use super::{Node, ANNOUNCE_EVERY, DEPTH_MAX, ENTER_TRIES, MAIN_NODE, UPKEEP_DELAY, WEIGHT_HIGH, WEIGHT_LOW};
+use super::{Node, ANNOUNCE_EVERY, DEPTH_MAX, ENTER_TRIES, MAIN_NODE, SILENT_MAX, UPKEEP_DELAY, WEIGHT_HIGH, WEIGHT_LOW};
 
 impl Node {
     pub(super) fn upkeep(&self) {
         if !self.enter_network() {
             eprintln!("Failed to enter the network.");
+            return;
+        }
+
+        if self.passive {
+            self.upkeep_passive();
             return;
         }
 
@@ -32,15 +38,30 @@ impl Node {
         }
     }
 
+    /// L'entretien d'un node qui n'appelle personne : ce qui se fait sans
+    /// reseau, et l'oubli des voisins silencieux.
+    fn upkeep_passive(&self) {
+        loop {
+            self.holders.lock().unwrap().forget_old();
+            self.servers.lock().unwrap().forget_dead();
+            self.neighbors.lock().unwrap().forget_silent(SILENT_MAX);
+            self.apply_quotas();
+            self.adjust_depth();
+            self.neighbors.lock().unwrap().save();
+            thread::sleep(UPKEEP_DELAY);
+        }
+    }
+
     fn enter_network(&self) -> bool {
         if self.ismain || !self.neighbors.lock().unwrap().is_empty() {
             return true;
         }
 
-        let main = Address::from_text(MAIN_NODE).unwrap();
-
         for _ in 0..ENTER_TRIES {
-            self.greet(main);
+            let main = main_node();
+            if main.is_some() {
+                self.greet(main.unwrap());
+            }
 
             if !self.neighbors.lock().unwrap().is_empty() {
                 return true;
@@ -55,7 +76,7 @@ impl Node {
 
     fn greet(&self, address: Address) {
         let ping = Message::Ping {
-            port: self.address.port,
+            port: self.public_port,
             id: self.id,
             depth: self.depth.load(Ordering::Relaxed),
         };
@@ -112,4 +133,22 @@ impl Node {
             self.depth.store(depth - 1, Ordering::Relaxed);
         }
     }
+}
+
+/// L'adresse du node principal. Elle peut etre un nom (celui d'un tunnel) :
+/// il est traduit en IP a chaque essai, au cas ou elle change.
+fn main_node() -> Option<Address> {
+    let found = MAIN_NODE.to_socket_addrs();
+    if found.is_err() {
+        eprintln!("Failed to find the main node: {}", MAIN_NODE);
+        return None;
+    }
+
+    for socket in found.unwrap() {
+        if socket.is_ipv4() {
+            return Some(Address::new(socket.ip(), socket.port()));
+        }
+    }
+
+    return None;
 }

@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use crate::address::Address;
 
 const FAILURES_MAX: u8 = 3;
@@ -8,6 +10,8 @@ pub struct Neighbor {
     pub id: u64,
     pub depth: u8,
     pub failures: u8,
+    /// La derniere fois qu'il nous a contacte, ou qu'on l'a appris.
+    pub heard: Instant,
 }
 
 impl Neighbor {
@@ -17,6 +21,7 @@ impl Neighbor {
             id,
             depth,
             failures: 0,
+            heard: Instant::now(),
         };
     }
 
@@ -26,6 +31,14 @@ impl Neighbor {
 
     pub fn failed(&mut self) {
         self.failures += 1;
+    }
+
+    pub fn heard(&mut self) {
+        self.heard = Instant::now();
+    }
+
+    pub fn silent_for(&self) -> Duration {
+        return self.heard.elapsed();
     }
 
     pub fn is_dead(&self) -> bool {

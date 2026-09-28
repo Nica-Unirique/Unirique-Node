@@ -14,6 +14,8 @@ use librqbit::{
 };
 use tokio::runtime::Runtime;
 
+const LOOPBACK_FILE: &str = "data/loopback_only.txt";
+
 /// Tout ce qui touche `librqbit` : fabriquer un torrent, partager un jeu,
 /// en telecharger un, compter ce qui a ete envoye.
 pub struct Torrents {
@@ -22,7 +24,10 @@ pub struct Torrents {
 }
 
 impl Torrents {
-    pub fn new(folder: &str, port: u16) -> Option<Torrents> {
+    /// `local_only` : aucune connexion vers un pair, sauf sur cette machine.
+    /// Les pairs qui viennent par un tunnel arrivent de 127.0.0.1 et sont
+    /// acceptes ; ceux qu'un pair nous indique ne sont jamais appeles.
+    pub fn new(folder: &str, port: u16, local_only: bool) -> Option<Torrents> {
         let runtime = Runtime::new();
         if runtime.is_err() {
             eprintln!("Failed to start tokio");
@@ -30,7 +35,16 @@ impl Torrents {
         }
         let runtime = runtime.unwrap();
 
-        let session = runtime.block_on(Session::new_with_opts(PathBuf::from(folder), session_options(port)));
+        let mut options = session_options(port);
+        if local_only {
+            let allowed = loopback_list();
+            if allowed.is_none() {
+                return None;
+            }
+            options.allowlist_url = allowed;
+        }
+
+        let session = runtime.block_on(Session::new_with_opts(PathBuf::from(folder), options));
         if session.is_err() {
             eprintln!("Failed to start torrents on port {}", port);
             return None;
@@ -216,6 +230,28 @@ fn session_options(port: u16) -> SessionOptions {
     options.listen = Some(listen);
 
     return options;
+}
+
+/// Ecrit la liste des IP permises (celles de cette machine) et rend son
+/// adresse `file://`, la seule forme que librqbit lit.
+fn loopback_list() -> Option<String> {
+    let here = std::env::current_dir();
+    if here.is_err() {
+        return None;
+    }
+
+    let file = here.unwrap().join(LOOPBACK_FILE);
+    if fs::create_dir_all(file.parent().unwrap()).is_err() || fs::write(&file, "loopback:127.0.0.0-127.255.255.255\n").is_err() {
+        eprintln!("Failed to write {}", file.display());
+        return None;
+    }
+
+    let text = file.to_string_lossy().replace('\\', "/");
+    if text.starts_with('/') {
+        return Some(format!("file://{}", text));
+    }
+
+    return Some(format!("file:///{}", text));
 }
 
 fn regex_escaped(text: &str) -> String {

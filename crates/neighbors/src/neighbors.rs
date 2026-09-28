@@ -1,4 +1,6 @@
 use std::fs;
+use std::net::IpAddr;
+use std::time::Duration;
 
 use crate::address::Address;
 use crate::neighbor::Neighbor;
@@ -121,6 +123,26 @@ impl Neighbors {
                     return;
                 }
             }
+        }
+    }
+
+    /// Quelqu'un de cette IP vient de nous contacter. Un message ne dit pas
+    /// le port de celui qui l'envoie : tous les voisins de cette IP comptent
+    /// comme entendus.
+    pub fn heard_from(&mut self, ip: IpAddr) {
+        for neighbors in [&mut self.near, &mut self.far] {
+            for neighbor in neighbors.iter_mut() {
+                if neighbor.address.ip == ip {
+                    neighbor.heard();
+                }
+            }
+        }
+    }
+
+    /// Oublie les voisins qui ne nous ont pas contactes depuis `within`.
+    pub fn forget_silent(&mut self, within: Duration) {
+        for neighbors in [&mut self.near, &mut self.far] {
+            neighbors.retain(|neighbor| neighbor.silent_for() < within);
         }
     }
 

@@ -1,4 +1,4 @@
-﻿use std::fs;
+use std::fs;
 use std::path::Path;
 
 use neighbors::Address;
@@ -7,6 +7,17 @@ pub struct Settings {
     pub ismain: bool,
     pub id: u64,
     pub address: Address,
+    /// Ne fait que repondre : n'ouvre jamais de connexion vers un autre node
+    /// ni vers un pair torrent. Pour un node dont l'IP doit rester cachee
+    /// derriere un tunnel.
+    pub passive: bool,
+    /// Le port que les autres joignent, si un tunnel le change.
+    pub public_port: Option<u16>,
+    /// Le port torrent que les autres joignent, si un tunnel le change.
+    pub public_torrent_port: Option<u16>,
+    /// Chaque connexion commence par l'en-tete PROXY du tunnel, qui donne la
+    /// vraie adresse de celui qui se connecte.
+    pub proxy_protocol: bool,
 }
 
 impl Settings {
@@ -15,6 +26,10 @@ impl Settings {
             ismain: false,
             id: rand::random(),
             address: Address::here(8735),
+            passive: false,
+            public_port: None,
+            public_torrent_port: None,
+            proxy_protocol: false,
         }
     }
 
@@ -31,6 +46,14 @@ impl Settings {
                 new.ismain = true;
                 continue;
             }
+            else if argument == "--passive" {
+                new.passive = true;
+                continue;
+            }
+            else if argument == "--proxy-protocol" {
+                new.proxy_protocol = true;
+                continue;
+            }
             else if !argument.contains('=') {
                 continue;
             }
@@ -45,6 +68,22 @@ impl Settings {
                     continue;
                 }
                 new.address.port = read.unwrap();
+                continue;
+            }
+
+            if name == "--public-port" || name == "--public-torrent" {
+                let read = value.parse::<u16>();
+                if read.is_err() {
+                    eprintln!("unreadable port: {}", value);
+                    continue;
+                }
+
+                if name == "--public-port" {
+                    new.public_port = Some(read.unwrap());
+                }
+                else {
+                    new.public_torrent_port = Some(read.unwrap());
+                }
                 continue;
             }
         }

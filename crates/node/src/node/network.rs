@@ -9,6 +9,7 @@ use neighbors::{Address, Neighbor};
 use protocol::Message;
 use wire::{read_frame, write_frame};
 
+use super::proxy::read_proxy_header;
 use super::{Node, ANSWER_WITHIN, BUSY_MAX, NEIGHBORS_ASKED};
 use crate::busy::Busy;
 
@@ -46,9 +47,14 @@ impl Node {
         let _ = stream.set_read_timeout(Some(ANSWER_WITHIN));
         let _ = stream.set_write_timeout(Some(ANSWER_WITHIN));
 
-        let from = stream.peer_addr();
-        if from.is_err() {
+        let from = self.caller_of(&mut stream);
+        if from.is_none() {
             return;
+        }
+        let from = from.unwrap();
+
+        if self.passive {
+            self.neighbors.lock().unwrap().heard_from(from.ip());
         }
 
         let message = read_message(&mut stream);
@@ -56,7 +62,7 @@ impl Node {
             return;
         }
 
-        let answer = self.answer(&message.unwrap(), from.unwrap());
+        let answer = self.answer(&message.unwrap(), from);
         if answer.is_none() {
             return;
         }
@@ -66,6 +72,21 @@ impl Node {
                 return;
             }
         }
+    }
+
+    /// Qui nous appelle. Derriere un tunnel, la connexion vient du tunnel :
+    /// la vraie adresse est dans l'en-tete PROXY qu'il envoie en premier.
+    fn caller_of(&self, stream: &mut TcpStream) -> Option<SocketAddr> {
+        let peer = stream.peer_addr();
+        if peer.is_err() {
+            return None;
+        }
+
+        if !self.proxy_protocol {
+            return Some(peer.unwrap());
+        }
+
+        return read_proxy_header(stream, peer.unwrap());
     }
 
     fn answer(&self, message: &Message, from: SocketAddr) -> Option<Message> {
@@ -105,7 +126,7 @@ impl Node {
         drop(neighbors);
 
         return Message::Pong {
-            port: self.address.port,
+            port: self.public_port,
             id: self.id,
             depth: self.depth.load(Ordering::Relaxed),
         };
@@ -143,6 +164,11 @@ impl Node {
     }
 
     pub(super) fn ask(&self, address: Address, message: Message) -> Option<Message> {
+        // Un node passif n'appelle personne : son IP ne sortirait pas du tunnel.
+        if self.passive {
+            return None;
+        }
+
         let stream = TcpStream::connect_timeout(&address.socket(), ANSWER_WITHIN);
         if stream.is_err() {
             return None;
