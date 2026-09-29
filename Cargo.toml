@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "unirique_node"
 version = "0.0.0"
 edition = "2021"
@@ -20,6 +20,7 @@ members = [
     "crates/torrents",
     "crates/protocol",
     "crates/node",
+    "crates/main_address",
 ]
 default-members = ["."]
 

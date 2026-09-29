@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "node"
 version = "0.0.0"
 edition = "2021"
@@ -9,5 +9,6 @@ neighbors = { path = "../neighbors" }
 catalog = { path = "../catalog" }
 torrents = { path = "../torrents" }
 protocol = { path = "../protocol" }
+main_address = { path = "../main_address" }
 rand = "0.9"
 

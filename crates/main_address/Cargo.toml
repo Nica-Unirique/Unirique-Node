@@ -1,0 +1,9 @@
+[package]
+name = "main_address"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+wire = { path = "../wire" }
+ed25519-dalek = "2"
+ureq = "3"

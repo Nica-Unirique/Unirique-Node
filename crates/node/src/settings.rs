@@ -18,6 +18,9 @@ pub struct Settings {
     /// Chaque connexion commence par l'en-tete PROXY du tunnel, qui donne la
     /// vraie adresse de celui qui se connecte.
     pub proxy_protocol: bool,
+    /// Le node principal a joindre, au lieu de l'adresse publiee sur GitHub
+    /// (essais en local).
+    pub main_node: Option<String>,
 }
 
 impl Settings {
@@ -30,6 +33,7 @@ impl Settings {
             public_port: None,
             public_torrent_port: None,
             proxy_protocol: false,
+            main_node: None,
         }
     }
 
@@ -68,6 +72,11 @@ impl Settings {
                     continue;
                 }
                 new.address.port = read.unwrap();
+                continue;
+            }
+
+            if name == "--main-node" {
+                new.main_node = Some(String::from(value));
                 continue;
             }
 

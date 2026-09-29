@@ -126,7 +126,7 @@ impl Node {
         drop(neighbors);
 
         return Message::Pong {
-            port: self.public_port,
+            port: self.public_port.load(Ordering::Relaxed),
             id: self.id,
             depth: self.depth.load(Ordering::Relaxed),
         };

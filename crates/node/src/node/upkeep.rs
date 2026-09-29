@@ -1,11 +1,10 @@
-use std::net::ToSocketAddrs;
 use std::sync::atomic::Ordering;
 use std::thread;
 
 use neighbors::{Address, Neighbor};
 use protocol::Message;
 
-use super::{Node, ANNOUNCE_EVERY, DEPTH_MAX, ENTER_TRIES, MAIN_NODE, SILENT_MAX, UPKEEP_DELAY, WEIGHT_HIGH, WEIGHT_LOW};
+use super::{resolve, Node, ANNOUNCE_EVERY, DEPTH_MAX, ENTER_TRIES, SILENT_MAX, UPKEEP_DELAY, WEIGHT_HIGH, WEIGHT_LOW};
 
 impl Node {
     pub(super) fn upkeep(&self) {
@@ -28,6 +27,7 @@ impl Node {
             }
             tour += 1;
 
+            self.publish_address();
             self.holders.lock().unwrap().forget_old();
             self.servers.lock().unwrap().forget_dead();
             self.find_new_neighbors();
@@ -42,6 +42,7 @@ impl Node {
     /// reseau, et l'oubli des voisins silencieux.
     fn upkeep_passive(&self) {
         loop {
+            self.publish_address();
             self.holders.lock().unwrap().forget_old();
             self.servers.lock().unwrap().forget_dead();
             self.neighbors.lock().unwrap().forget_silent(SILENT_MAX);
@@ -58,7 +59,7 @@ impl Node {
         }
 
         for _ in 0..ENTER_TRIES {
-            let main = main_node();
+            let main = self.main_node();
             if main.is_some() {
                 self.greet(main.unwrap());
             }
@@ -74,9 +75,24 @@ impl Node {
         return false;
     }
 
+    /// L'adresse du node principal : celle donnee au lancement, sinon celle
+    /// publiee sur GitHub, lue a chaque essai puisqu'elle change.
+    fn main_node(&self) -> Option<Address> {
+        if self.main_node.is_some() {
+            return resolve(self.main_node.as_ref().unwrap());
+        }
+
+        let published = main_address::fetch();
+        if published.is_none() {
+            return None;
+        }
+
+        return resolve(&published.unwrap().node);
+    }
+
     fn greet(&self, address: Address) {
         let ping = Message::Ping {
-            port: self.public_port,
+            port: self.public_port.load(Ordering::Relaxed),
             id: self.id,
             depth: self.depth.load(Ordering::Relaxed),
         };
@@ -133,22 +149,4 @@ impl Node {
             self.depth.store(depth - 1, Ordering::Relaxed);
         }
     }
-}
-
-/// L'adresse du node principal. Elle peut etre un nom (celui d'un tunnel) :
-/// il est traduit en IP a chaque essai, au cas ou elle change.
-fn main_node() -> Option<Address> {
-    let found = MAIN_NODE.to_socket_addrs();
-    if found.is_err() {
-        eprintln!("Failed to find the main node: {}", MAIN_NODE);
-        return None;
-    }
-
-    for socket in found.unwrap() {
-        if socket.is_ipv4() {
-            return Some(Address::new(socket.ip(), socket.port()));
-        }
-    }
-
-    return None;
 }

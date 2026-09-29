@@ -10,24 +10,25 @@ mod local;
 mod lookup;
 mod network;
 mod proxy;
+mod publish;
 mod share;
 mod shelves;
 mod upkeep;
 
 use std::collections::HashMap;
-use std::net::TcpListener;
-use std::sync::atomic::AtomicU8;
+use std::net::{TcpListener, ToSocketAddrs};
+use std::sync::atomic::{AtomicU16, AtomicU8};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use catalog::{Contents, Holders, Servers, CONTENTS_FOLDER};
+use main_address::SigningKey;
 use neighbors::{Address, Neighbors};
 use torrents::Torrents;
 
 use crate::settings::Settings;
 use share::Download;
 
-const MAIN_NODE: &str = "127.0.0.1:8735";
 const ENTER_TRIES: u32 = 10;
 /// En mode passif, un voisin qui ne nous a pas contactes depuis ce temps est
 /// oublie : on ne peut pas l'appeler pour savoir s'il vit.
@@ -61,10 +62,18 @@ pub struct Node {
     address: Address,
     passive: bool,
     proxy_protocol: bool,
-    /// Le port que les autres joignent : celui du tunnel s'il y en a un.
-    public_port: u16,
-    /// Le port torrent que les autres joignent.
-    public_torrent_port: u16,
+    /// Le port que les autres joignent : celui du tunnel s'il y en a un. Il
+    /// change avec les tunnels.
+    public_port: AtomicU16,
+    /// Ou les autres joignent notre partage torrent. Sans IP (`here`), celui
+    /// qui demande met celle par laquelle il nous a joints.
+    public_torrent: Mutex<Address>,
+    /// Le node principal a joindre au lieu de l'adresse publiee.
+    main_node: Option<String>,
+    /// La cle qui signe l'adresse publiee : seulement le node principal.
+    main_key: Option<SigningKey>,
+    /// Le dernier `data/tunnels.txt` lu.
+    tunnels_seen: Mutex<String>,
 
     neighbors: Mutex<Neighbors>,
     contents: Mutex<Contents>,
@@ -86,13 +95,21 @@ impl Node {
         let public_port = settings.public_port.unwrap_or(settings.address.port);
         let public_torrent_port = settings.public_torrent_port.unwrap_or(torrent_port);
 
+        let mut main_key = None;
+        if settings.ismain {
+            main_key = publish::load_main_key();
+        }
+
         return Some(Node {
             ismain: settings.ismain,
             address: settings.address,
             passive: settings.passive,
             proxy_protocol: settings.proxy_protocol,
-            public_port,
-            public_torrent_port,
+            public_port: AtomicU16::new(public_port),
+            public_torrent: Mutex::new(Address::here(public_torrent_port)),
+            main_node: settings.main_node,
+            main_key,
+            tunnels_seen: Mutex::new(String::new()),
             id: settings.id,
             depth: AtomicU8::new(0),
             neighbors: Mutex::new(Neighbors::new()),
@@ -123,4 +140,20 @@ impl Node {
         self.listen_local(local.unwrap());
         self.upkeep();
     }
+}
+
+/// `hote:port` en adresse IPv4 : un tunnel donne un nom, pas une IP.
+fn resolve(text: &str) -> Option<Address> {
+    let found = text.to_socket_addrs();
+    if found.is_err() {
+        return None;
+    }
+
+    for socket in found.unwrap() {
+        if socket.is_ipv4() {
+            return Some(Address::new(socket.ip(), socket.port()));
+        }
+    }
+
+    return None;
 }

@@ -13,7 +13,7 @@ impl Node {
         let mut holders = self.holders.lock().unwrap().of(infohash);
 
         if self.contents.lock().unwrap().is_holding(infohash) {
-            holders.push(Address::here(self.public_torrent_port));
+            holders.push(*self.public_torrent.lock().unwrap());
         }
 
         let neighbors = self.neighbors.lock().unwrap().closest(key_of(infohash), CLOSER_SENT);
@@ -106,7 +106,7 @@ impl Node {
 
     pub(super) fn announce_holding(&self, content: &Content) {
         let (_, closest) = self.lookup(&content.infohash);
-        let torrent_port = self.public_torrent_port;
+        let torrent_port = self.public_torrent.lock().unwrap().port;
 
         for neighbor in closest.iter().take(ANNOUNCE_TO) {
             self.ask(neighbor.address, Message::AnnounceHolder { infohash: content.infohash.clone(), torrent_port });
