@@ -1,4 +1,4 @@
-//! L'adresse du node principal, publiee dans `ip.txt` sur GitHub.
+﻿//! L'adresse du node principal, publiee dans `ip.txt` sur GitHub.
 //!
 //! Le node principal est derriere des tunnels gratuits dont l'adresse change
 //! toutes les heures : elle n'est donc pas ecrite dans le code. Le node
@@ -25,7 +25,7 @@ pub use ed25519_dalek::SigningKey;
 use wire::{key_to_hex, put_text, put_u64, signature_from_hex, signature_to_hex};
 
 /// Ou le fichier est publie.
-pub const ADDRESS_URL: &str = "https://raw.githubusercontent.com/Nica-Unirique/Unirique-IP/main/ip.txt";
+pub const ADDRESS_URL: &str = "https://raw.githubusercontent.com/Nica-Unirique/Unirique-Node-Ip/main/ip.txt";
 
 /// La cle publique du node principal. A remplacer par celle qu'affiche le
 /// node principal a son premier lancement (`--main`).
