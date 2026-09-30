@@ -29,12 +29,11 @@ impl Node {
         }
         let text = text.unwrap();
 
-        let mut seen = self.tunnels_seen.lock().unwrap();
-        if *seen == text {
+        // Deja publiee. Tant qu'elle ne l'est pas (noms pas encore trouves au
+        // demarrage), on reessaie a chaque tour.
+        if *self.tunnels_seen.lock().unwrap() == text {
             return;
         }
-        *seen = text.clone();
-        drop(seen);
 
         let tunnels = read_tunnels(&text);
         if tunnels.is_none() {
@@ -71,6 +70,8 @@ impl Node {
             eprintln!("Failed to write {}", PUBLISHED_FILE);
             return;
         }
+
+        *self.tunnels_seen.lock().unwrap() = text;
 
         eprintln!("Published address: node {}, torrent {}", address.node, address.torrent);
     }
