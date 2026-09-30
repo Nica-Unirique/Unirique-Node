@@ -44,15 +44,25 @@ impl Node {
 
         let mut address = tunnels.unwrap();
 
+        // Les noms des tunnels gratuits contiennent l'IP de la box : on ne
+        // publie que l'IP du serveur du tunnel et le port, jamais le nom.
         let node = resolve(&address.node);
         let torrent = resolve(&address.torrent);
-        if node.is_none() || torrent.is_none() {
+        let ucompany = resolve(&address.ucompany);
+        if node.is_none() || torrent.is_none() || ucompany.is_none() {
             eprintln!("Failed to find the tunnels of {}", TUNNELS_FILE);
             return;
         }
 
-        self.public_port.store(node.unwrap().port, Ordering::Relaxed);
-        *self.public_torrent.lock().unwrap() = torrent.unwrap();
+        let node = node.unwrap();
+        let torrent = torrent.unwrap();
+
+        address.node = node.to_text();
+        address.torrent = torrent.to_text();
+        address.ucompany = format!("http://{}", ucompany.unwrap().to_text());
+
+        self.public_port.store(node.port, Ordering::Relaxed);
+        *self.public_torrent.lock().unwrap() = torrent;
 
         address.time = now_seconds();
         address.sign(self.main_key.as_ref().unwrap());
