@@ -1,4 +1,4 @@
-﻿//! L'adresse du node principal, publiee dans `ip.txt` sur GitHub.
+//! L'adresse du node principal, publiee dans `ip.txt` sur GitHub.
 //!
 //! Le node principal est derriere des tunnels gratuits dont l'adresse change
 //! toutes les heures : elle n'est donc pas ecrite dans le code. Le node
@@ -27,9 +27,14 @@ use wire::{key_to_hex, put_text, put_u64, signature_from_hex, signature_to_hex};
 /// Ou le fichier est publie.
 pub const ADDRESS_URL: &str = "https://raw.githubusercontent.com/Nica-Unirique/Unirique-Node-Ip/main/ip.txt";
 
-/// La cle publique du node principal. A remplacer par celle qu'affiche le
-/// node principal a son premier lancement (`--main`).
-pub const MAIN_KEY: [u8; 32] = [0; 32];
+/// La cle publique du node principal (celle de `data/main_key.txt` sur le Pi) :
+/// d44b6bd9b5b4d72f8c911e848e7705c59429e48a59bc9802e86507a453da303c
+pub const MAIN_KEY: [u8; 32] = [
+    0xd4, 0x4b, 0x6b, 0xd9, 0xb5, 0xb4, 0xd7, 0x2f,
+    0x8c, 0x91, 0x1e, 0x84, 0x8e, 0x77, 0x05, 0xc5,
+    0x94, 0x29, 0xe4, 0x8a, 0x59, 0xbc, 0x98, 0x02,
+    0xe8, 0x65, 0x07, 0xa4, 0x53, 0xda, 0x30, 0x3c,
+];
 
 const FETCH_WITHIN: Duration = Duration::from_secs(10);
 const FILE_MAX: u64 = 4 * 1024;
