@@ -4,14 +4,11 @@ use std::thread;
 use neighbors::{Address, Neighbor};
 use protocol::Message;
 
-use super::{resolve, Node, ANNOUNCE_EVERY, DEPTH_MAX, ENTER_TRIES, SILENT_MAX, UPKEEP_DELAY, WEIGHT_HIGH, WEIGHT_LOW};
+use super::{resolve, Node, ANNOUNCE_EVERY, DEPTH_MAX, SILENT_MAX, UPKEEP_DELAY, WEIGHT_HIGH, WEIGHT_LOW};
 
 impl Node {
     pub(super) fn upkeep(&self) {
-        if !self.enter_network() {
-            eprintln!("Failed to enter the network.");
-            return;
-        }
+        self.enter_network();
 
         if self.passive {
             self.upkeep_passive();
@@ -27,6 +24,8 @@ impl Node {
             }
             tour += 1;
 
+            // Tous nos voisins ont disparu : on rentre par le node principal.
+            self.enter_network();
             self.publish_address();
             self.holders.lock().unwrap().forget_old();
             self.servers.lock().unwrap().forget_dead();
@@ -53,26 +52,27 @@ impl Node {
         }
     }
 
-    fn enter_network(&self) -> bool {
-        if self.ismain || !self.neighbors.lock().unwrap().is_empty() {
-            return true;
+    /// Tant qu'on n'a aucun voisin, on salue le node principal, sans limite :
+    /// son adresse change toutes les heures, et la copie publiee met quelques
+    /// minutes a suivre.
+    fn enter_network(&self) {
+        if self.ismain {
+            return;
         }
 
-        for _ in 0..ENTER_TRIES {
+        while self.neighbors.lock().unwrap().is_empty() {
             let main = self.main_node();
             if main.is_some() {
                 self.greet(main.unwrap());
             }
 
             if !self.neighbors.lock().unwrap().is_empty() {
-                return true;
+                return;
             }
 
             eprintln!("No neighbor yet, trying again...");
             thread::sleep(UPKEEP_DELAY);
         }
-        eprintln!("Failed to enter the network after multiple tries.");
-        return false;
     }
 
     /// L'adresse du node principal : celle donnee au lancement, sinon celle

@@ -29,7 +29,6 @@ use torrents::Torrents;
 use crate::settings::Settings;
 use share::Download;
 
-const ENTER_TRIES: u32 = 10;
 /// En mode passif, un voisin qui ne nous a pas contactes depuis ce temps est
 /// oublie : on ne peut pas l'appeler pour savoir s'il vit.
 const SILENT_MAX: Duration = Duration::from_secs(10 * 60);
