@@ -116,7 +116,19 @@ impl Torrents {
                 return false;
             }
 
-            return handle.unwrap().wait_until_completed().await.is_ok();
+            let handle = handle.unwrap();
+            if handle.wait_until_completed().await.is_err() {
+                return false;
+            }
+
+            // Le torrent recu, tel quel : le refaire ici donnerait un autre
+            // infohash d'un systeme a l'autre, et la signature ne tiendrait plus.
+            let bytes = handle.with_metadata(|metadata| metadata.torrent_bytes.clone());
+            if bytes.is_err() {
+                return false;
+            }
+
+            return fs::write(folder.join("content.torrent"), bytes.unwrap()).is_ok();
         });
     }
 

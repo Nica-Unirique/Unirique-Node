@@ -8,8 +8,9 @@
 //! Sans reseau, sans signature valide, ou si le node tourne deja, il lance
 //! le node qu'il a.
 //!
-//! `launcher --sign <version> <dossier>` signe les exe d'une release avec
-//! `data/main_key.txt` : a faire la ou se trouve la cle.
+//! `launcher --sign <version> <dossier> [cle]` signe les exe d'une release
+//! avec la cle du node principal : `data/main_key.txt` par defaut, ou le
+//! fichier donne en troisieme argument.
 
 use std::env;
 use std::fs;
@@ -149,12 +150,17 @@ fn run_node(folder: &Path, arguments: &[String]) -> i32 {
     return code.unwrap();
 }
 
-/// `--sign <version> <dossier>` : ecrit `<fichier>.sig` a cote de chaque exe
-/// publie trouve dans le dossier.
+/// `--sign <version> <dossier> [cle]` : ecrit `<fichier>.sig` a cote de
+/// chaque exe publie trouve dans le dossier.
 fn sign_release(arguments: &[String]) {
-    if arguments.len() != 2 {
-        eprintln!("Usage: launcher --sign <version> <folder>");
+    if arguments.len() != 2 && arguments.len() != 3 {
+        eprintln!("Usage: launcher --sign <version> <folder> [key file]");
         exit(2);
+    }
+
+    let mut key_file = String::from(MAIN_KEY_FILE);
+    if arguments.len() == 3 {
+        key_file = arguments[2].clone();
     }
 
     let version = read_version(&arguments[0]);
@@ -164,9 +170,9 @@ fn sign_release(arguments: &[String]) {
     }
     let version = version.unwrap();
 
-    let key = read_key();
+    let key = read_key(&key_file);
     if key.is_none() {
-        eprintln!("No key in {}", MAIN_KEY_FILE);
+        eprintln!("No key in {}", key_file);
         exit(2);
     }
     let key = key.unwrap();
@@ -196,8 +202,8 @@ fn sign_release(arguments: &[String]) {
     eprintln!("{} file(s) signed for version {}", signed, version_text(version));
 }
 
-fn read_key() -> Option<SigningKey> {
-    let text = fs::read_to_string(MAIN_KEY_FILE);
+fn read_key(file: &str) -> Option<SigningKey> {
+    let text = fs::read_to_string(file);
     if text.is_err() {
         return None;
     }
