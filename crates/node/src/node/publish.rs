@@ -101,10 +101,23 @@ pub(super) fn load_main_key() -> Option<SigningKey> {
         return None;
     }
 
+    only_owner_reads(MAIN_KEY_FILE);
+
     let key = key_from_secret(&secret);
     eprintln!("New main key (MAIN_KEY): {}", public_hex(&key));
     return Some(key);
 }
+
+/// La cle ne se lit que par l'utilisateur du node (droits 600).
+#[cfg(unix)]
+fn only_owner_reads(path: &str) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+}
+
+#[cfg(not(unix))]
+fn only_owner_reads(_path: &str) {}
 
 /// `node=`, `torrent=` et `ucompany=`, une par ligne.
 fn read_tunnels(text: &str) -> Option<MainAddress> {

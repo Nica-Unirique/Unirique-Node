@@ -1,0 +1,13 @@
+[package]
+name = "launcher"
+version = "0.0.0"
+edition = "2021"
+
+[[bin]]
+name = "launcher"
+path = "src/main.rs"
+
+[dependencies]
+release = { path = "../release" }
+main_address = { path = "../main_address" }
+wire = { path = "../wire" }

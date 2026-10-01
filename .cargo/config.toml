@@ -1,0 +1,7 @@
+# Le runtime C de Microsoft (vcruntime140.dll) est mis DANS l'exe : un PC
+# neuf n'a rien a installer. Seulement sous Windows (le Pi n'est pas touche).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

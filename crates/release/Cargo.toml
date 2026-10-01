@@ -1,0 +1,11 @@
+[package]
+name = "release"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+wire = { path = "../wire" }
+main_address = { path = "../main_address" }
+ed25519-dalek = "2"
+sha2 = "0.10"
+ureq = "3"

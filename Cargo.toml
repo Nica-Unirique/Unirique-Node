@@ -21,8 +21,10 @@ members = [
     "crates/protocol",
     "crates/node",
     "crates/main_address",
+    "crates/release",
+    "crates/launcher",
 ]
-default-members = ["."]
+default-members = [".", "crates/launcher"]
 
 [profile.release]
 opt-level = "s"
