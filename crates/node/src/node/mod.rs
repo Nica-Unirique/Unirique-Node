@@ -134,6 +134,7 @@ impl Node {
         }
 
         self.complete_torrents();
+        self.sign_official_contents();
         self.seed_contents();
         self.listen(listener.unwrap());
         self.listen_local(local.unwrap());

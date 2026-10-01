@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
 
-use catalog::{write_infohash, Content, CONTENTS_FOLDER};
+use catalog::{content_bytes, write_infohash, Content, CONTENTS_FOLDER};
+use main_address::sign_bytes;
 use protocol::{Answer, Reason};
 
 use super::local::failed;
@@ -38,6 +39,86 @@ impl Node {
             write_infohash(folder, &infohash);
             self.contents.lock().unwrap().set_infohash(folder, &infohash);
         }
+    }
+
+    /// Publier, c'est poser un dossier dans `Contents/` : un `manifest.json`
+    /// (nom, version, tags, description, jaquette) et `content/`. Le node le
+    /// voit au tour suivant, fabrique son torrent et le partage s'il est
+    /// signe. Le node principal signe lui-meme les contenus officiels.
+    pub(super) fn publish_dropped(&self) {
+        let added = self.contents.lock().unwrap().add_new_folders();
+        if added.is_empty() {
+            return;
+        }
+
+        self.complete_torrents();
+
+        for folder in added.iter() {
+            let content = self.contents.lock().unwrap().find_folder(folder);
+            if content.is_none() {
+                continue;
+            }
+            let mut content = content.unwrap();
+
+            if !content.is_signed() {
+                let signed = self.sign_official(&content);
+                if signed.is_none() {
+                    eprintln!("Waiting for its author's signature: {}", content.name);
+                    continue;
+                }
+                content = signed.unwrap();
+            }
+
+            eprintln!("Published: {} {}.{}.{}", content.name, content.version[0], content.version[1], content.version[2]);
+            self.share_signed(&content);
+        }
+    }
+
+    /// Au demarrage : le node principal signe les contenus officiels poses
+    /// pendant qu'il etait arrete.
+    pub(super) fn sign_official_contents(&self) {
+        let contents = self.contents.lock().unwrap().get_all();
+
+        for content in contents.iter() {
+            if content.downloaded && !content.is_signed() {
+                let _ = self.sign_official(content);
+            }
+        }
+    }
+
+    /// Signe un contenu officiel avec la cle du node principal : un contenu
+    /// pose sans auteur, ou dont l'auteur est deja le node principal. Rien sur
+    /// un autre node, ni pour le contenu d'un autre auteur.
+    fn sign_official(&self, content: &Content) -> Option<Content> {
+        if self.main_key.is_none() || content.infohash.is_empty() {
+            return None;
+        }
+
+        let key = self.main_key.as_ref().unwrap();
+        let main = key.verifying_key().to_bytes();
+        if content.autor_key != [0; 32] && content.autor_key != main {
+            return None;
+        }
+
+        let mut contents = self.contents.lock().unwrap();
+        contents.set_autor_key(&content.folder, main);
+
+        let mut official = content.clone();
+        official.autor_key = main;
+        let signature = sign_bytes(key, &content_bytes(&official));
+
+        return contents.set_signature(&content.infohash, signature);
+    }
+
+    /// Partage un contenu signe et le fait connaitre.
+    fn share_signed(&self, content: &Content) {
+        if content.is_exhausted() {
+            return;
+        }
+
+        self.seed(content);
+        self.announce_holding(content);
+        self.store_content(content);
     }
 
     pub(super) fn seed_contents(&self) {

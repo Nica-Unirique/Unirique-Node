@@ -27,6 +27,7 @@ impl Node {
             // Tous nos voisins ont disparu : on rentre par le node principal.
             self.enter_network();
             self.publish_address();
+            self.publish_dropped();
             self.holders.lock().unwrap().forget_old();
             self.servers.lock().unwrap().forget_dead();
             self.find_new_neighbors();
@@ -42,6 +43,7 @@ impl Node {
     fn upkeep_passive(&self) {
         loop {
             self.publish_address();
+            self.publish_dropped();
             self.holders.lock().unwrap().forget_old();
             self.servers.lock().unwrap().forget_dead();
             self.neighbors.lock().unwrap().forget_silent(SILENT_MAX);

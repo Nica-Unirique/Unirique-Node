@@ -49,6 +49,55 @@ impl Contents {
         }
     }
 
+    /// Ajoute les dossiers poses dans `Contents/` depuis la derniere fois.
+    /// Rend ceux qui ont ete ajoutes.
+    pub fn add_new_folders(&mut self) -> Vec<PathBuf> {
+        let mut added = Vec::new();
+
+        let entries = fs::read_dir(&self.folder);
+        if entries.is_err() {
+            return added;
+        }
+
+        for entry in entries.unwrap() {
+            if entry.is_err() {
+                continue;
+            }
+
+            let path = entry.unwrap().path();
+            if !path.is_dir() || self.knows_folder(&path) {
+                continue;
+            }
+
+            let before = self.values.len();
+            self.add_local(&path);
+            if self.values.len() > before {
+                added.push(path);
+            }
+        }
+
+        return added;
+    }
+
+    fn knows_folder(&self, folder: &PathBuf) -> bool {
+        for content in self.values.iter() {
+            if &content.folder == folder {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// Donne un auteur a un contenu pose sans auteur.
+    pub fn set_autor_key(&mut self, folder: &PathBuf, autor_key: [u8; 32]) {
+        for content in self.values.iter_mut() {
+            if &content.folder == folder {
+                content.autor_key = autor_key;
+            }
+        }
+    }
+
     pub fn add_local(&mut self, content_folder: &PathBuf) {
         let content = Content::new(content_folder);
         if content.is_none() {
@@ -230,6 +279,16 @@ impl Contents {
                 self.save_shares();
 
                 return Some(content.folder);
+            }
+        }
+
+        return None;
+    }
+
+    pub fn find_folder(&self, folder: &PathBuf) -> Option<Content> {
+        for content in self.values.iter() {
+            if &content.folder == folder {
+                return Some(content.clone());
             }
         }
 

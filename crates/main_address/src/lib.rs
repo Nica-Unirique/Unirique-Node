@@ -160,6 +160,11 @@ pub fn key_from_secret(secret: &[u8; 32]) -> SigningKey {
     return SigningKey::from_bytes(secret);
 }
 
+/// Signe des octets avec une cle de node principal.
+pub fn sign_bytes(key: &SigningKey, bytes: &[u8]) -> [u8; 64] {
+    return key.sign(bytes).to_bytes();
+}
+
 /// La cle publique a ecrire dans `MAIN_KEY`.
 pub fn public_hex(key: &SigningKey) -> String {
     return key_to_hex(&key.verifying_key().to_bytes());

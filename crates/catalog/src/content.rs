@@ -85,30 +85,27 @@ impl Content {
         }
         content.version = version.unwrap();
 
+        // Sans auteur, le contenu attend une cle : celle du node principal,
+        // qui signe les contenus officiels qu'on pose dans son dossier.
         let autor = json["autor_key"].as_str();
-        if autor.is_none() {
-            return None;
+        if autor.is_some() && !autor.unwrap().is_empty() {
+            let autor_key = key_from_hex(autor.unwrap());
+            if autor_key.is_none() {
+                return None;
+            }
+            content.autor_key = autor_key.unwrap();
         }
-
-        let autor_key = key_from_hex(autor.unwrap());
-        if autor_key.is_none() {
-            return None;
-        }
-        content.autor_key = autor_key.unwrap();
 
         let tags = json["tags"].as_array().map(|arr| {
             arr.iter().filter_map(|v| v.as_u64()).collect::<Vec<u64>>()});
-        if tags.is_none() {
-            return None;
+        if tags.is_some() {
+            content.tags = tags.unwrap();
         }
-        content.tags = tags.unwrap();
 
         let description = json["description"].as_str().map(String::from);
-        if description.is_none() {
-            return None;
+        if description.is_some() {
+            content.description = description.unwrap();
         }
-
-        content.description = description.unwrap();
 
         let cover = json["cover"].as_str();
         if cover.is_some() {
